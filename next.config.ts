@@ -7,6 +7,10 @@ const nextConfig: NextConfig = {
   },
   cacheComponents: true,
   partialPrefetching: true,
+  images: {
+    // Placeholder photography for the hero until real assets exist.
+    remotePatterns: [{ protocol: "https", hostname: "images.unsplash.com" }],
+  },
   turbopack: {
     rules: {
       "*.css": {

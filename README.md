@@ -20,6 +20,14 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Properties map ("Where we are", `/properties`)
+
+The section lives on its own page, `app/properties/page.tsx`, linked from the header and the menu. "Explore opportunities" on a property hands its filter to the homepage job explorer across the navigation (`lib/careers/property-filter.ts`).
+
+The map is [MapLibre GL JS](https://maplibre.org/) with [OpenFreeMap](https://openfreemap.org/) tiles: no API key, no account, no billing. Its attribution (OpenFreeMap, OpenMapTiles, OpenStreetMap) is shown on the map and must stay visible.
+
+Properties are configured in `lib/properties/properties.ts`. A property's pin comes from its verified `position` (the current ones are taken from the OpenStreetMap feature linked in `source`). A property without a position still appears in the panel and index, marked "Map location to be confirmed". Adding an entry adds it to the map, the panel and the index.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

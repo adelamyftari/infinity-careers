@@ -1,26 +1,158 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* The page surface: warm off-white, with the dot grid below. */
+  --background: #f2f0eb;
+  --dot: #c7cbd1;
+  --foreground: #141518;
+  /* The intro stays charcoal: the gold logo is lit for a dark stage. */
+  --ink: #141518;
+  --muted: #6d6c68;
+  --line: rgb(20 21 24 / 0.09);
+  --gold: #fbae25;
+  --gold-deep: #d18c0b;
+  /* Interactive gold in the properties section. */
+  --gold-signature: #e9a300;
+  /* Type on charcoal. */
+  --warm: #f5f3ee;
+  /* Outer page margin, shared by the header and every section. */
+  --gutter: clamp(1.25rem, 4vw, 4.5rem);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-gold: var(--gold);
+  --color-gold-deep: var(--gold-deep);
+  --color-warm: var(--warm);
+  --color-signature: var(--gold-signature);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-serif: var(--font-instrument-serif);
+  /* The one easing curve: matches GSAP's "expo.out" (lib/motion.ts). */
+  --ease-premium: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/*
+ * The page surface, on the canvas itself so it covers every page edge to
+ * edge and never restarts at a section: warm off-white with a fine dot grid,
+ * one small crisp cool-grey dot every 24px both ways. Sections paint no background of
+ * their own.
+ */
+html {
+  overflow-x: clip;
+  background-color: var(--background);
+  background-image: radial-gradient(circle, var(--dot) 0.9px, transparent 1.15px);
+  background-size: 24px 24px;
+  background-position: 12px 12px;
+}
+
+/* MapLibre's controls, in the properties map's dark palette. */
+[data-map] .maplibregl-ctrl-group {
+  background: rgb(20 21 24 / 0.85);
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.1);
+  overflow: hidden;
+}
+
+[data-map] .maplibregl-ctrl-group button + button {
+  border-top-color: rgb(255 255 255 / 0.1);
+}
+
+[data-map] .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(0.92);
+}
+
+[data-map] .maplibregl-ctrl-bottom-right {
+  margin: 0 0.5rem 0.5rem 0;
+}
+
+/*
+ * Attribution (required by OpenFreeMap, OpenMapTiles, OpenStreetMap and
+ * geoBoundaries), on the light section. Matches MapLibre's own compact-mode
+ * selectors so these colours win.
+ */
+[data-map] .maplibregl-ctrl.maplibregl-ctrl-attrib,
+[data-map] .maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact,
+[data-map] .maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact-show {
+  background: rgb(242 240 235 / 0.9);
+  color: rgb(20 21 24 / 0.55);
+  font-size: 11px;
+}
+
+[data-map] .maplibregl-ctrl-attrib a {
+  color: rgb(20 21 24 / 0.75);
+}
+
+[data-map] .maplibregl-cooperative-gesture-screen {
+  background: rgb(20 21 24 / 0.72);
+  color: var(--warm);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 15px;
+}
+
+/* The selected marker's halo, breathing (PropertyMarker). */
+@keyframes halo {
+  0%,
+  100% {
+    scale: 1;
+    opacity: 1;
+  }
+  50% {
+    scale: 1.18;
+    opacity: 0.55;
   }
 }
 
+/* A map pin dropping into place (PropertyMarker). */
+@keyframes marker-in {
+  from {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* No body background: the page colour comes from <html> (the canvas). */
 body {
-  background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+::selection {
+  background: var(--gold);
+  color: var(--ink);
+}
+
+/* Page transition (React <ViewTransition> on each page's <main>): the old
+   page dissolves, the new one rises in on the site's premium ease. */
+::view-transition-old(.page-exit) {
+  animation: 220ms cubic-bezier(0.4, 0, 1, 1) both page-out;
+}
+::view-transition-new(.page-enter) {
+  animation: 700ms cubic-bezier(0.16, 1, 0.3, 1) 120ms both page-in;
+}
+@keyframes page-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(.page-exit),
+  ::view-transition-new(.page-enter) {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
 }
