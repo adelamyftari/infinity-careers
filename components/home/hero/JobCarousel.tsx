@@ -3,15 +3,15 @@
 import { useLayoutEffect, useRef, useState, type ReactNode, type Ref, type RefObject } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import type { Job } from "@/lib/careers/jobs";
-import { useMagnetic } from "@/lib/hooks/use-magnetic";
+import type { CarouselRole } from "@/lib/careers/jobs";
+import { RoundButton } from "@/components/ui/RoundButton";
 import { createOrbitLayout, type OrbitLayout } from "@/lib/carousel/orbit";
 import {
   INTERACTIVE_UNTIL,
+  OPENING,
   ORBIT_SCROLL,
-  DESCRIPTION,
-  HEADLINE,
-  headlineStart,
+  ROLES_SCENE,
+  orbitHeadline,
   orbitScene,
   orbitUiOpacity,
   placeInScene,
@@ -21,6 +21,8 @@ import {
 import { onIntroReveal } from "@/lib/intro/reveal-signal";
 import { EASE, prefersReducedMotion } from "@/lib/motion";
 import { JobCard } from "./JobCard";
+import { button } from "@/components/ui/button";
+import { Letters, useMagneticLetters } from "@/components/home/destinations/MagneticLetters";
 
 // The orbit: every role at an equal angle round one ellipse through the
 // cards' centreline, so there is no first or last card. Geometry, spacing
@@ -51,22 +53,27 @@ const HOVER_LIFT = 24;
 
 gsap.registerPlugin(ScrollTrigger);
 
+const HEADLINE_LETTERS = { color: "--brand-accent", snap: 0.1, reach: 2.4 };
+
 type Engine = {
   setCount: (count: number) => void;
   step: (delta: number) => void;
   /** Where the page scroll has carried the whole orbit (0 = the carousel as it is). */
-  setScroll: (progress: number, profile: OrbitScrollProfile, aim: number) => void;
+  setScroll: (progress: number, opening: number, profile: OrbitScrollProfile, covered: boolean) => void;
   destroy: () => void;
 };
 
 type JobCarouselProps = {
-  jobs: Job[];
+  /** The cards: openings and pictured roles, in order (lib/careers/jobs: carouselRoles). */
+  roles: CarouselRole[];
   onClear: () => void;
   ref?: Ref<HTMLElement>;
   /**
-   * What the orbit hands over to as the page scrolls past: shown in front of
-   * the cards, inside the same pinned scene. It marks its reveal with
-   * `data-handoff-rise` (the block that rises from below) and `data-handoff-fade`.
+   * What the orbit hands over to, inside the same pinned scene: it slides over
+   * the cards once they hold their final pose. Its `data-handoff-rise` block says
+   * on `data-handoff-scroll` how many screens it needs in all and on
+   * `data-handoff-cover` how many until the cards are fully covered, and is told
+   * how far along it is, 0 → 1, by a "handoff:progress" event.
    */
   handoff?: ReactNode;
 };
@@ -80,16 +87,18 @@ type JobCarouselProps = {
  * transforms straight to the DOM and sleeps when settled, so React only
  * re-renders when the front role changes.
  */
-export function JobCarousel({ jobs, onClear, ref, handoff }: JobCarouselProps) {
+export function JobCarousel({ roles, onClear, ref, handoff }: JobCarouselProps) {
   const pin = useRef<HTMLDivElement>(null);
   const runway = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const slots = useRef<(HTMLDivElement | null)[]>([]);
   const live = useRef<HTMLParagraphElement>(null);
   const engine = useRef<Engine | null>(null);
+  const headlineRef = useRef<HTMLHeadingElement>(null);
+  // Near the cursor, the heading's letters swell and turn Infinity Yellow: every letter it
+  // comes near, not just the one under it, each switching outright so none rests muddy.
+  useMagneticLetters(headlineRef, HEADLINE_LETTERS);
   const [active, setActive] = useState(0);
-  const prev = useMagnetic<HTMLButtonElement>(0.35);
-  const next = useMagnetic<HTMLButtonElement>(0.35);
 
   useLayoutEffect(() => {
     const el = stage.current;
@@ -101,12 +110,10 @@ export function JobCarousel({ jobs, onClear, ref, handoff }: JobCarouselProps) {
     };
   }, []);
 
-  // Scrolling past, one pinned scene in three layers: the page's dotted
-  // background, the orbit (which opens into a 3D ring, turns, rises, recedes
-  // and fades), and in front of it the handoff (the editorial statement),
-  // rising from below the screen as one block while the ring is still turning.
-  // One scrubbed timeline drives all of it, so it runs the same forward and
-  // back. The scene stays pinned to the end of the sequence, its final screen.
+  // Scrolling past, one pinned scene in strict order: the orbit opens into a 3D
+  // ring and turns to its final pose over the page's dotted background, and
+  // holds it while the handoff slides up in front. One scrubbed clock drives
+  // both, so that order holds at any scroll speed, forward and back.
   // gsap.matchMedia is a gsap.context: reverting it cleans all of this up.
   // Reduced motion keeps the plain carousel, with the handoff below it.
   useLayoutEffect(() => {
@@ -125,12 +132,35 @@ export function JobCarousel({ jobs, onClear, ref, handoff }: JobCarouselProps) {
         if (!motion) return;
         const profile = desktop ? ORBIT_SCROLL.desktop : tablet ? ORBIT_SCROLL.tablet : ORBIT_SCROLL.phone;
         const distance = () => window.innerHeight * profile.distance;
-        const state = { progress: 0 };
-        // How far the ring travels to sit behind the statement (measured on refresh).
-        let aim = 0;
+        const state = { clock: 0, progress: 0, opening: 0, handoff: 0, covered: false };
+        // The message at the orbit's heart: the engine keeps it on the ring's centre; its motion is set here.
+        const headline = el.querySelector<HTMLElement>("[data-orbit-headline]");
+        // How far it must descend to leave the pinned screen: from its resting top
+        // (the scene is centred while pinned) to below the screen's foot, with room
+        // for its growth. Measured on refresh, never per frame.
+        let exit = window.innerHeight;
+        const measureExit = () => {
+          if (!headline) return;
+          const restTop = window.innerHeight / 2 - el.offsetHeight / 2 + (headline.getBoundingClientRect().top - el.getBoundingClientRect().top);
+          // The allowance covers its growth to 1.08 about its centre and the ring's small rise.
+          exit = Math.max(0, window.innerHeight - restTop) + headline.offsetHeight * 0.3 + window.innerHeight * profile.rise + 24;
+        };
+        measureExit();
+        ScrollTrigger.addEventListener("refresh", measureExit);
         const apply = () => {
-          engine.current?.setScroll(state.progress, profile, aim);
-          el.style.setProperty("--orbit-ui", orbitUiOpacity(state.progress).toFixed(3));
+          engine.current?.setScroll(state.progress, state.opening, profile, state.covered);
+          if (headline) {
+            const h = orbitHeadline(state.progress, exit);
+            headline.style.setProperty("--headline-o", h.opacity.toFixed(3));
+            headline.style.setProperty("--headline-s", h.scale.toFixed(4));
+            headline.style.setProperty("--headline-y", `${h.y.toFixed(2)}px`);
+            headline.style.setProperty("--headline-l1", h.lines[0].toFixed(3));
+            headline.style.setProperty("--headline-l2", h.lines[1].toFixed(3));
+            headline.style.visibility = h.opacity < 0.005 || h.out ? "hidden" : "visible";
+          }
+          const ui = orbitUiOpacity(state.progress, state.opening);
+          el.style.setProperty("--orbit-ui", ui.toFixed(3));
+          el.dataset.controls = ui < 0.01 ? "off" : "";
           el.dataset.orbit = state.progress > INTERACTIVE_UNTIL ? "moving" : "";
         };
 
@@ -138,7 +168,6 @@ export function JobCarousel({ jobs, onClear, ref, handoff }: JobCarouselProps) {
         // one screen tall, centred on the pinned stage, so it covers exactly
         // the viewport while pinned.
         const block = el.querySelector<HTMLElement>("[data-handoff-rise]");
-        const fades = Array.from(el.querySelectorAll<HTMLElement>("[data-handoff-fade]"));
         if (el.querySelector("[data-handoff-layer]")) el.dataset.handoff = "overlay";
 
         // The scene ends pinned on its final screen, centred: the page must
@@ -154,59 +183,53 @@ export function JobCarousel({ jobs, onClear, ref, handoff }: JobCarouselProps) {
         sizeRunway();
         ScrollTrigger.addEventListener("refreshInit", sizeRunway);
 
-        // While pinned, the stage is centred on screen and the foreground
-        // covers the screen, so both positions follow from the layout: the
-        // ring (the stage's centre) aims for the headline's centre.
-        // The block fills the foreground from its top, so a position inside it
-        // is the final position on screen, wherever the block is on its way.
-        const title = el.querySelector<HTMLElement>("[data-handoff-layer] h2");
-        const titleTop = () => (title && block ? title.getBoundingClientRect().top - block.getBoundingClientRect().top : 0);
-        const measureAim = () => {
-          const stageEl = stage.current;
-          if (!title || !stageEl || !el.dataset.handoff) return void (aim = 0);
-          const textCentre = titleTop() + title.offsetHeight / 2;
-          const ringCentre = (window.innerHeight - el.offsetHeight) / 2 + stageEl.offsetTop + stageEl.offsetHeight / 2;
-          aim = textCentre - ringCentre;
-          apply();
-        };
-        measureAim();
-        ScrollTrigger.addEventListener("refresh", measureAim);
-
+        const after = () => window.innerHeight * Number(block?.dataset.handoffScroll ?? 0);
+        const cover = () => window.innerHeight * Number(block?.dataset.handoffCover ?? 0);
+        const sceneLength = () => distance() + after();
         ScrollTrigger.create({
+          id: ROLES_SCENE,
           trigger: el,
           start: "center center",
-          end: () => `+=${distance()}`,
+          end: () => `+=${sceneLength()}`,
           pin: true,
           invalidateOnRefresh: true,
         });
-        const timeline = gsap
-          .timeline({
-            scrollTrigger: { trigger: el, start: "center center", end: () => `+=${distance()}`, scrub: 0.8, invalidateOnRefresh: true },
-          })
-          .to(state, { progress: 1, duration: 1, ease: "none", onUpdate: apply }, 0);
-        // The statement, on the same timeline: one block, one transform, rising
-        // steadily with the scroll; the foreground clips at the screen's height,
-        // so nothing of it shows before it reaches the fold. The description
-        // fades up as the block settles.
-        if (block) {
-          timeline.fromTo(
-            block,
-            { y: () => headlineStart(window.innerHeight, titleTop()) },
-            { y: 0, ease: "none", duration: HEADLINE.to - HEADLINE.from, immediateRender: true },
-            HEADLINE.from,
-          );
-        }
-        if (fades.length) {
-          gsap.set(fades, { autoAlpha: 0 });
-          timeline.to(fades, { autoAlpha: 1, ease: "none", duration: DESCRIPTION.to - DESCRIPTION.from }, DESCRIPTION.from);
-        }
+        // The one clock of the scene. Both parts read it, so the handoff cannot
+        // start before the orbit has ended, however fast the page is scrolled.
+        const tick = () => {
+          const scrolled = state.clock * sceneLength();
+          state.progress = Math.min(1, scrolled / distance());
+          // Only once it is fully behind the handoff does the orbit stop painting.
+          state.covered = after() > 0 && scrolled >= distance() + cover();
+          apply();
+          const handoff = after() ? clamp((scrolled - distance()) / after(), 0, 1) : 0;
+          if (handoff === state.handoff) return;
+          state.handoff = handoff;
+          block?.dispatchEvent(new CustomEvent("handoff:progress", { detail: handoff }));
+        };
+        gsap.fromTo(
+          state,
+          { clock: 0 },
+          { clock: 1, ease: "none", onUpdate: tick, immediateRender: false, scrollTrigger: { trigger: el, start: "center center", end: () => `+=${sceneLength()}`, scrub: 0.8 } },
+        );
+        // The ring opens from the page's first scroll, before the pin begins.
+        gsap.to(state, {
+          opening: 1,
+          ease: "none",
+          onUpdate: apply,
+          scrollTrigger: { start: 0, end: () => window.innerHeight * OPENING, scrub: 0.8, invalidateOnRefresh: true },
+        });
 
         return () => {
           ScrollTrigger.removeEventListener("refreshInit", sizeRunway);
-          ScrollTrigger.removeEventListener("refresh", measureAim);
+          ScrollTrigger.removeEventListener("refresh", measureExit);
           delete el.dataset.handoff;
           space.style.height = "";
+          state.clock = 0;
           state.progress = 0;
+          state.opening = 0;
+          state.handoff = 0;
+          state.covered = false;
           apply();
         };
       },
@@ -216,12 +239,12 @@ export function JobCarousel({ jobs, onClear, ref, handoff }: JobCarouselProps) {
 
   // A new set of roles (filters changed): the orbit re-forms around them.
   useLayoutEffect(() => {
-    slots.current.length = jobs.length;
-    engine.current?.setCount(jobs.length);
-  }, [jobs]);
+    slots.current.length = roles.length;
+    engine.current?.setCount(roles.length);
+  }, [roles]);
 
-  const count = jobs.length;
-  const current = count > 0 ? jobs[Math.min(active, count - 1)] : undefined;
+  const count = roles.length;
+  const current = count > 0 ? roles[Math.min(active, count - 1)] : undefined;
 
   return (
     <div className="relative">
@@ -234,14 +257,14 @@ export function JobCarousel({ jobs, onClear, ref, handoff }: JobCarouselProps) {
             role="group"
             tabIndex={count > 0 ? 0 : -1}
             aria-label="Roles. Use the left and right arrow keys to turn the carousel."
-            className={`relative isolate h-[calc(var(--card-h)+10rem)] touch-pan-y select-none rounded-[40px] outline-none [--card-h:calc(var(--card-w)*0.66)] [--card-w:min(84vw,30rem)] focus-visible:outline-2 focus-visible:-outline-offset-8 focus-visible:outline-gold/60 in-data-[orbit=moving]:pointer-events-none lg:[--card-w:clamp(28rem,33vw,40rem)] ${
+            className={`relative isolate h-[calc(var(--card-h)+10rem)] touch-pan-y select-none rounded-[40px] outline-none focus-visible:outline-2 focus-visible:-outline-offset-8 focus-visible:outline-accent/60 in-data-[orbit=moving]:pointer-events-none ${
               count > 1 ? "cursor-grab data-[dragging=true]:cursor-grabbing data-[dragging=true]:**:cursor-grabbing" : ""
             }`}
           >
             {/* The gallery floor: a soft shadow the orbit turns above. */}
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute bottom-6 left-1/2 h-28 w-[min(90vw,80rem)] -translate-x-1/2 bg-[radial-gradient(closest-side,rgb(20_21_24/0.12),transparent)] opacity-(--orbit-ui,1)"
+              className="pointer-events-none absolute bottom-6 left-1/2 h-28 w-[min(90vw,80rem)] -translate-x-1/2 bg-[radial-gradient(closest-side,rgb(16_47_50/0.13),transparent)] opacity-(--orbit-ui,1)"
             />
             {/*
               Flat on purpose: each card is its own 3D unit (see render), in two
@@ -249,9 +272,9 @@ export function JobCarousel({ jobs, onClear, ref, handoff }: JobCarouselProps) {
               ring layer inside it the card's place on the orbit.
             */}
             <div data-scene className="absolute inset-0">
-              {jobs.map((job, i) => (
+              {roles.map((role, i) => (
                 <div
-                  key={job.slug}
+                  key={role.key}
                   ref={(node) => {
                     slots.current[i] = node;
                   }}
@@ -259,7 +282,7 @@ export function JobCarousel({ jobs, onClear, ref, handoff }: JobCarouselProps) {
                   role="group"
                   aria-roledescription="slide"
                   aria-label={`${i + 1} of ${count}`}
-                  className="group/slot invisible absolute left-1/2 top-1/2 w-(--card-w) origin-center will-change-transform [transform-style:preserve-3d]"
+                  className="group/slot pointer-events-none invisible absolute left-1/2 top-1/2 w-(--card-w) origin-center will-change-transform [transform-style:preserve-3d]"
                   style={{ marginLeft: "calc(var(--card-w) / -2)", marginTop: "calc(var(--card-h) / -2)" }}
                 >
                   <div data-ring className="will-change-transform [transform-style:preserve-3d]">
@@ -269,7 +292,7 @@ export function JobCarousel({ jobs, onClear, ref, handoff }: JobCarouselProps) {
                     >
                       {/* Opacity lives here, on a flat leaf: on a 3D layer it would flatten the card's pose. */}
                       <div data-fade className="opacity-0">
-                        <JobCard job={job} />
+                        <JobCard role={role} />
                       </div>
                     </div>
                   </div>
@@ -277,14 +300,44 @@ export function JobCarousel({ jobs, onClear, ref, handoff }: JobCarouselProps) {
               ))}
             </div>
 
+            {/*
+              The message at the heart of the orbit. Flat, in the cards' own stacking
+              context at the depth of the ring's centre (the engine sets its z-index
+              and keeps it on that centre, lifted to the clear space between the rows:
+              the near cards are the larger ones), so the near half of the ring passes
+              in front of it and the far half behind. On phones the ring is too small to
+              hold it, so it reads just below the ring instead, on the same clock. Only seen while the page scroll
+              turns the ring; reduced motion keeps the plain carousel without it.
+            */}
+            <h2
+              ref={headlineRef}
+              data-orbit-headline
+              aria-label="Every role has a place"
+              className="pointer-events-none invisible absolute left-1/2 top-1/2 m-0 whitespace-nowrap text-center text-[clamp(2rem,4.1vw,4.375rem)]/[0.98] font-semibold tracking-[-0.03em] text-petrol [transform:translate(-50%,-50%)_translateY(calc(var(--core-y,0px)-0.42em))] max-md:[transform:translate(-50%,-50%)_translateY(calc(var(--core-y,0px)-0.42em+var(--card-h)*0.84))]"
+            >
+              <span className="block origin-center opacity-(--headline-o,0) [transform:translateY(var(--headline-y,0px))_scale(var(--headline-s,0.78))]">
+                {/* Masks with room round the letters, so one can swell under the cursor unclipped; the negative margins keep the layout. */}
+                <span className="-mx-[0.08em] -my-[0.2em] block overflow-hidden px-[0.2em] pb-[0.26em] pt-[0.2em]">
+                  <span className="block [transform:translateY(calc((1-var(--headline-l1,0))*105%))]">
+                    <Letters text="EVERY" /> <Letters text="ROLE" />
+                  </span>
+                </span>
+                <span className="-mx-[0.08em] -my-[0.2em] block overflow-hidden px-[0.2em] pb-[0.3em] pt-[0.2em]">
+                  <span className="block [transform:translateY(calc((1-var(--headline-l2,0))*105%))]">
+                    <Letters text="HAS" /> <Letters text="A" /> <Letters text="PLACE" />
+                  </span>
+                </span>
+              </span>
+            </h2>
+
             {count === 0 && (
               <div className="absolute inset-0 flex flex-col items-center justify-center px-(--gutter) text-center">
-                <p className="font-serif text-[clamp(2.5rem,5vw,4.5rem)] italic leading-none tracking-[-0.02em]">Nothing here, yet.</p>
-                <p className="mt-4 max-w-sm text-muted">No roles match these filters right now. Try widening your search.</p>
+                <p className="font-accent text-page font-normal italic">Nothing here, yet.</p>
+                <p className="mt-4 max-w-sm text-body text-muted">No roles match these filters right now. Try widening your search.</p>
                 <button
                   type="button"
                   onClick={onClear}
-                  className="mt-8 cursor-pointer rounded-full bg-ink px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-black"
+                  className={`${button.primary} mt-6`}
                 >
                   Clear filters
                 </button>
@@ -293,32 +346,22 @@ export function JobCarousel({ jobs, onClear, ref, handoff }: JobCarouselProps) {
           </div>
 
           {current && (
-            <div className="mt-2 flex items-center justify-end px-(--gutter) opacity-(--orbit-ui,1) in-data-[orbit=moving]:pointer-events-none">
+            <div className="-mt-12 flex items-center justify-between gap-6 px-(--gutter) opacity-(--orbit-ui,1) focus-within:opacity-100 in-data-[orbit=moving]:pointer-events-none in-data-[controls=off]:not-focus-within:invisible">
+              {/* The running index: which role is at the front. */}
+              <p aria-hidden="true" className="flex min-w-0 items-center gap-4">
+                <span className="text-title/none font-medium tabular-nums">{String(Math.min(active, count - 1) + 1).padStart(2, "0")}</span>
+                <span className="min-w-0 border-l border-line pl-4 text-small">
+                  <span className="block truncate font-medium">{current.title}</span>
+                  <span className="block truncate text-muted">{current.subtitle}</span>
+                </span>
+              </p>
               {/* Announced when the visitor turns the orbit, never for auto-rotation. */}
               <p ref={live} aria-live="off" className="sr-only">
-                {current.title} — {current.property}
+                {current.title} — {current.subtitle}
               </p>
               <div className="flex gap-2">
-                {(
-                  [
-                    { label: "Previous role", delta: -1, path: "M10 3 5 8l5 5", ref: prev },
-                    { label: "Next role", delta: 1, path: "m6 3 5 5-5 5", ref: next },
-                  ] as const
-                ).map(({ label, delta, path, ref: magnet }) => (
-                  <button
-                    key={label}
-                    ref={magnet}
-                    type="button"
-                    aria-label={label}
-                    onClick={() => engine.current?.step(delta)}
-                    disabled={count < 2}
-                    className="flex size-13 cursor-pointer items-center justify-center rounded-full border border-foreground/15 bg-white/60 text-foreground transition-[background-color,color,border-color,opacity] duration-500 ease-premium hover:border-ink hover:bg-ink hover:text-gold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold disabled:pointer-events-none disabled:opacity-30"
-                  >
-                    <svg viewBox="0 0 16 16" aria-hidden="true" className="size-4">
-                      <path d={path} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </button>
-                ))}
+                <RoundButton label="Previous role" path="M10 3 5 8l5 5" onClick={() => engine.current?.step(-1)} disabled={count < 2} />
+                <RoundButton label="Next role" path="m6 3 5 5-5 5" onClick={() => engine.current?.step(1)} disabled={count < 2} />
               </div>
             </div>
           )}
@@ -333,7 +376,7 @@ export function JobCarousel({ jobs, onClear, ref, handoff }: JobCarouselProps) {
         {handoff && (
           <div
             data-handoff-layer
-            className="relative z-10 in-data-[handoff=overlay]:pointer-events-none in-data-[handoff=overlay]:absolute in-data-[handoff=overlay]:inset-x-0 in-data-[handoff=overlay]:top-[calc(50%-50vh)] in-data-[handoff=overlay]:h-screen in-data-[handoff=overlay]:overflow-clip"
+            className="relative z-10 in-data-[handoff=overlay]:pointer-events-none in-data-[handoff=overlay]:absolute in-data-[handoff=overlay]:inset-x-0 in-data-[handoff=overlay]:top-[calc(50%-50vh)] in-data-[handoff=overlay]:h-[calc(100vh+4px)] in-data-[handoff=overlay]:overflow-clip"
           >
             {handoff}
           </div>
@@ -349,6 +392,9 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 const preventDefault = (event: Event) => event.preventDefault();
 
 /** All carousel motion. Lives outside React: it touches only the DOM. */
+/** Below this depth opacity a card turns see-through as it leaves the ring; above it, it is drawn solid. */
+const SEE_THROUGH = 0.5;
+
 function createEngine(
   stage: HTMLDivElement,
   slots: (HTMLDivElement | null)[],
@@ -356,6 +402,7 @@ function createEngine(
   onActive: (index: number) => void,
 ): Engine {
   const reduced = prefersReducedMotion();
+  const headline = stage.querySelector<HTMLElement>("[data-orbit-headline]");
 
   let count = 0;
   // Rotation in card steps: unbounded, never wrapped. Card i is at the front
@@ -371,6 +418,8 @@ function createEngine(
   /** The page scroll's pose for the whole orbit; null while it is the plain carousel. */
   let scene: OrbitScene | null = null;
   let scrollProgress = 0;
+  /** Whether the page scroll has begun to open the orbit. */
+  let opened = false;
 
   let pressed = false;
   let dragging = false;
@@ -411,7 +460,8 @@ function createEngine(
       const introY = (1 - t) * 60;
       // The scroll pose, solved against this card's place on the orbit.
       const placed = scene ? placeInScene(layout, count, d, place, introY, scene) : null;
-      const opacity = (placed?.opacity ?? place.opacity) * t;
+      // The entrance's depth fade stays with the ring: the stack is a solid deck.
+      const opacity = (placed?.opacity ?? place.opacity) * (t + (1 - t) * (placed?.collapse ?? 0));
 
       // Every card projects from the same camera point (its transform origin
       // is the stage centre) but in its own 3D context, so cards can never
@@ -423,15 +473,27 @@ function createEngine(
       }
       // Outer layer: the shared camera, and the page scroll's pose.
       slot.style.transform = placed ? `perspective(${PERSPECTIVE}px) ${placed.transform}` : `perspective(${PERSPECTIVE}px)`;
+      // Depth reads through the veil, the perspective and the scale; the card itself stays opaque
+      // until it is leaving the ring (below SEE_THROUGH). A translucent card over the hero's
+      // two-tone ground (petrol above, the page's warm white below) would show a pale band across
+      // its lower half and lose its contrast.
       const fade = slot.querySelector<HTMLElement>("[data-fade]");
-      if (fade) fade.style.opacity = opacity.toFixed(3);
+      if (fade) fade.style.opacity = Math.min(1, opacity / SEE_THROUGH).toFixed(3);
       slot.style.visibility = opacity < 0.01 ? "hidden" : "visible";
-      slot.style.pointerEvents = opacity < 0.5 || scrollProgress > INTERACTIVE_UNTIL ? "none" : "";
+      // On the ring layer, which is where the card is: the slot's own empty box is elsewhere once the scene moves it.
+      if (ring) ring.style.pointerEvents = opacity < 0.5 || scrollProgress > INTERACTIVE_UNTIL ? "none" : "auto";
       slot.style.zIndex = String(placed?.zIndex ?? place.zIndex);
       // Depth fade: further round the orbit, the card washes toward the page.
       slot.style.setProperty("--veil", (placed?.veil ?? place.fade).toFixed(3));
       const isActive = String(i === front && t > 0.6);
       if (slot.dataset.active !== isActive) slot.dataset.active = isActive;
+    }
+
+    // The message at the orbit's heart sits at the depth of the ring's centre, on its projection.
+    if (headline) {
+      const rz = layout.radiusZ;
+      headline.style.zIndex = String(Math.round(10_000 - rz));
+      headline.style.setProperty("--core-y", `${((scene?.y ?? 0) * (PERSPECTIVE / (PERSPECTIVE + rz))).toFixed(2)}px`);
     }
 
     if (front !== activeIndex && count > 0) {
@@ -662,7 +724,7 @@ function createEngine(
   const autoRotate = reduced
     ? 0
     : window.setInterval(() => {
-        if (pointerInside || focusInside || pressed || !onScreen || document.hidden || intro.value < 1 || scrollProgress > 0) return;
+        if (pointerInside || focusInside || pressed || !onScreen || document.hidden || intro.value < 1 || opened) return;
         stepBy(1, false);
       }, AUTO_ROTATE * 1000);
 
@@ -713,17 +775,15 @@ function createEngine(
     step(delta) {
       stepBy(delta, true);
     },
-    setScroll(progress, profile, aim) {
+    setScroll(progress, opening, profile, covered) {
       scrollProgress = progress;
-      scene = progress > 0 ? orbitScene(progress, profile, window.innerHeight, aim) : null;
-      // Once the orbit has faded out it is gone entirely: no paint, no
-      // hit-testing, nothing behind the headline.
+      opened = progress > 0 || opening > 0;
+      scene = opened ? orbitScene(progress, opening, profile, window.innerHeight) : null;
+      // Fully covered by what follows: no paint, no hit-testing.
       const container = stage.querySelector<HTMLElement>("[data-scene]");
       if (container) {
-        const gone = scene !== null && scene.opacity <= 0;
-        container.style.visibility = gone ? "hidden" : "";
-        container.style.opacity = gone ? "0" : "";
-        container.style.pointerEvents = gone ? "none" : "";
+        container.style.visibility = covered ? "hidden" : "";
+        container.style.pointerEvents = covered ? "none" : "";
       }
       render();
     },

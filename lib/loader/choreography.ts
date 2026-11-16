@@ -3,11 +3,11 @@ import type { LogoPieceId } from "./logo-mark";
 type Vec3 = [number, number, number];
 
 /** Seconds for the pieces to assemble into the logo. */
-export const ASSEMBLY = 1.05;
+export const ASSEMBLY = 0.82;
 /** Seconds the finished logo holds before it travels. */
-export const HOLD = 0.18;
+export const HOLD = 0.08;
 /** Seconds for the logo to travel into the header. */
-export const FLIGHT = 0.45;
+export const FLIGHT = 0.42;
 
 /** Timeline seconds for a point in the assembly, as a percentage of it. */
 export const at = (percent: number) => (percent / 100) * ASSEMBLY;

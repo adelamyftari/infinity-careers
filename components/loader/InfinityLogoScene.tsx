@@ -36,8 +36,8 @@ export type IntroTargets = {
 
 type Props = {
   targets: IntroTargets;
-  /** Called once the WebGL context exists; the timeline starts with it. */
-  onReady: () => void;
+  /** The logo's whole motion, paused: the intro's master timeline plays it. */
+  onTimeline: (timeline: gsap.core.Timeline) => void;
   /** As the charcoal starts clearing: the page can begin its entrance. */
   onReveal: () => void;
   /** Once the header logo has taken over. */
@@ -66,7 +66,6 @@ export function InfinityLogoScene(props: Props) {
       onCreated={({ gl }) => {
         // Neutral keeps the brand yellow from shifting toward orange.
         gl.toneMapping = NeutralToneMapping;
-        props.onReady();
       }}
     >
       <ambientLight intensity={0.45} color="#fff4e0" />
@@ -90,7 +89,7 @@ export function InfinityLogoScene(props: Props) {
 /** Camera framing, written by GSAP and read every frame: 0 = intro, 1 = header. */
 type Rig = { flight: number; x: number; y: number; size: number };
 
-function Assembly({ targets, onReveal, onFinish }: Props) {
+function Assembly({ targets, onTimeline, onReveal, onFinish }: Props) {
   // LED trails follow the flight of the pieces, then switch off as they settle.
   const [trails, setTrails] = useState(true);
 
@@ -131,11 +130,12 @@ function Assembly({ targets, onReveal, onFinish }: Props) {
     [scene],
   );
 
-  // The whole intro, from first frame to the header hand-over, lives on one
-  // GSAP timeline, created once and killed on unmount.
+  // The logo, from first frame to the header hand-over, lives on one GSAP
+  // timeline, created once and killed on unmount. It is nested in the intro's
+  // master timeline, which decides when it plays.
   useLayoutEffect(() => {
     const { led, float, pieces, rig, floorShadow } = scene;
-    const tl = gsap.timeline({ onComplete: onFinish });
+    const tl = gsap.timeline({ paused: true, onComplete: onFinish });
 
     for (const { motion, state, pulse } of pieces) {
       const [tx, ty, tz] = motion.turns;
@@ -161,7 +161,7 @@ function Assembly({ targets, onReveal, onFinish }: Props) {
 
     // After a short hold the logo travels into the header: the camera
     // re-frames until the logo's front face covers the header logo's box,
-    // while the charcoal clears and the header content fades in.
+    // while its petrol field wipes away upward and the header content fades in.
     const fly = ASSEMBLY + HOLD;
     const logo = targets.logo.current;
     if (logo) {
@@ -176,17 +176,24 @@ function Assembly({ targets, onReveal, onFinish }: Props) {
       tl.to(rig, { flight: 1, duration: FLIGHT, ease: "power3.inOut" }, fly);
     }
     tl.to(floorShadow, { opacity: 0, duration: FLIGHT * 0.4, ease: "power2.out" }, fly);
-    tl.to(targets.backdrop.current, { autoAlpha: 0, duration: FLIGHT * 0.8, ease: "power2.inOut" }, fly + FLIGHT * 0.1);
+    tl.fromTo(
+      targets.backdrop.current,
+      { clipPath: "inset(0% 0% 0% 0%)" },
+      { clipPath: "inset(0% 0% 100% 0%)", duration: FLIGHT * 0.85, ease: "power3.inOut" },
+      fly + FLIGHT * 0.05,
+    );
     tl.call(onReveal, [], fly + FLIGHT * 0.1);
     tl.to(targets.reveal.current, { autoAlpha: 1, y: 0, duration: FLIGHT * 0.6, stagger: 0.04, ease: "power2.out" }, fly + FLIGHT * 0.4);
     // The hand-over: the header logo appears exactly under the 3D one, then the canvas goes.
     tl.to(logo, { autoAlpha: 1, duration: 0.1, ease: "none" }, fly + FLIGHT - 0.1);
     tl.to(targets.canvas.current, { autoAlpha: 0, duration: 0.1, ease: "none" }, fly + FLIGHT - 0.02);
 
+    onTimeline(tl);
+
     return () => {
       tl.kill();
     };
-  }, [scene, targets, onReveal, onFinish]);
+  }, [scene, targets, onTimeline, onReveal, onFinish]);
 
   return (
     <group>
@@ -274,7 +281,7 @@ function Piece({ piece, float, trail }: PieceProps) {
       </group>
       <object3D ref={anchor} position={initial.trailAnchor} />
       {trail && (
-        <Trail target={anchor} width={0.35} length={5} decay={1} color="#ffc65a" attenuation={(w) => w * w} />
+        <Trail target={anchor} width={0.35} length={5} decay={1} color="#e9ad00" attenuation={(w) => w * w} />
       )}
     </>
   );

@@ -1,69 +1,154 @@
 @import "tailwindcss";
 
+/* The side-by-side compositions: wide screens, and any landscape screen from 640px. A phone on its
+   side is as short as a strip, so a column that stacks would run off its bottom. `narrow` is the
+   exact opposite. The same query for scripts: WIDE_LAYOUT in lib/site/layout.ts. */
+@custom-variant wide {
+  @media (width >= 64rem) {
+    @slot;
+  }
+  @media (orientation: landscape) and (width >= 40rem) {
+    @slot;
+  }
+}
+@custom-variant narrow {
+  @media (width < 40rem) {
+    @slot;
+  }
+  @media (orientation: portrait) and (width < 64rem) {
+    @slot;
+  }
+}
+/* Under 640px tall, any orientation (a small phone, a phone on its side): a dialog scrolls as one
+   page instead of holding its header and footer still around a sliver of content. */
+@custom-variant low {
+  @media (height < 40rem) {
+    @slot;
+  }
+}
+/* A landscape screen under 600px tall (a phone on its side): text columns widen so they take fewer lines. */
+@custom-variant short {
+  @media (orientation: landscape) and (height < 37.5rem) {
+    @slot;
+  }
+}
+
 :root {
-  /* The page surface: warm off-white, with the dot grid below. */
-  --background: #f2f0eb;
-  --dot: #c7cbd1;
-  --foreground: #141518;
-  /* The intro stays charcoal: the gold logo is lit for a dark stage. */
-  --ink: #141518;
-  --muted: #6d6c68;
-  --line: rgb(20 21 24 / 0.09);
-  --gold: #fbae25;
-  --gold-deep: #d18c0b;
-  /* Interactive gold in the properties section. */
-  --gold-signature: #e9a300;
-  /* Type on charcoal. */
-  --warm: #f5f3ee;
-  /* Outer page margin, shared by the header and every section. */
-  --gutter: clamp(1.25rem, 4vw, 4.5rem);
+  /* The brand colours; everything below derives from them. The dark is Dark Forest
+     Teal; the accent is Infinity Yellow, used sparingly. The logo keeps its own yellow
+     (lib/loader/logo-mark.ts). */
+  --brand-primary: #102f32;
+  --brand-neutral: #f7f7f2;
+  --brand-accent: #e9ae00;
+
+  /* The dark field (Dark Forest Teal, the primary itself): the hero, the benefits, the loader,
+     the job cards' "Explore role". */
+  --infinity-petrol: #102f32;
+  /* The hero's large monogram: the field, a step lighter, barely there. */
+  --infinity-petrol-mark: #143c40;
+
+  /* Teal: the loading screen's third scene (components/loader/KineticType). */
+  --brand-teal: #159a91;
+  /* The properties section's field: the Dark Forest Teal, with Warm White type. */
+  --properties-background: #102f32;
+  /* Where a property has no media yet: two quiet tones of the field, not a colour of their own. */
+  --properties-surface: #203436;
+  --properties-surface-raised: #283e40;
+
+  /* Surfaces. */
+  --background: var(--brand-neutral);
+  --dot: rgb(16 47 50 / 0.16);
+  /* The primary, a step lifted toward the neutral: tone on tone, as on the hero's monogram. */
+  --primary-soft: #174246;
+  /* Secondary text on the neutral: the primary, softened; passes AA at 6:1, and at 5:1 on its tints. */
+  --muted: #456467;
+  --line: rgb(16 47 50 / 0.14);
+  /* Page margin, shared by the header and every section. Content stops at
+     1440px on wide screens; full-bleed pieces like the orbit don't. */
+  --gutter: max(clamp(1.25rem, 4vw, 4.5rem), calc((100vw - 1440px) / 2));
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-ink: var(--ink);
+  --color-primary: var(--brand-primary);
+  --color-primary-soft: var(--primary-soft);
+  --color-neutral: var(--brand-neutral);
+  --color-accent: var(--brand-accent);
+  --color-petrol: var(--infinity-petrol);
+  --color-petrol-soft: var(--infinity-petrol-mark);
+  --color-properties: var(--properties-background);
+  --color-properties-surface: var(--properties-surface);
+  --color-properties-surface-raised: var(--properties-surface-raised);
   --color-muted: var(--muted);
   --color-line: var(--line);
-  --color-gold: var(--gold);
-  --color-gold-deep: var(--gold-deep);
-  --color-warm: var(--warm);
-  --color-signature: var(--gold-signature);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-serif: var(--font-instrument-serif);
+
+  /* Suisse Int'l first, wherever it is available; Inter Tight is the closest open match. */
+  --font-sans: "Suisse Intl", "Suisse Int'l", var(--font-grotesk), ui-sans-serif, system-ui, sans-serif;
+  /* Emphasis words only. */
+  --font-accent: var(--font-instrument), Georgia, "Times New Roman", serif;
+
+  /* Type scale: every size on the site comes from here. */
+  --text-display: clamp(2.75rem, 2.75rem + 1.667vw, 4.75rem);
+  --text-display--line-height: 1.06;
+  --text-display--letter-spacing: -0.025em;
+  /* The hero headline below lg, where it breaks into three lines. */
+  --text-display-compact: clamp(2.25rem, 1.5rem + 4.6vw, 3.75rem);
+  --text-display-compact--line-height: 1.06;
+  --text-display-compact--letter-spacing: -0.025em;
+  --text-statement: clamp(2.5rem, 11vw, 3.5rem);
+  --text-statement--line-height: 0.98;
+  --text-statement--letter-spacing: -0.028em;
+  --text-statement-wide: clamp(3.5rem, min(5vw, 11vh), 5.5rem);
+  --text-statement-wide--line-height: 0.98;
+  --text-statement-wide--letter-spacing: -0.028em;
+  /* The properties: the giant title, on one line at every width, and each property's name. */
+  --text-colossal: clamp(2.5rem, 14vw, 11.875rem);
+  --text-colossal--line-height: 1;
+  --text-colossal--letter-spacing: -0.035em;
+  --text-property: clamp(1.5rem, 2.2vw, 2.125rem);
+  --text-property--line-height: 1.04;
+  --text-property--letter-spacing: -0.018em;
+  --text-page: clamp(2.5rem, 1.75rem + 2vw, 3.25rem);
+  --text-page--line-height: 1.04;
+  --text-page--letter-spacing: -0.025em;
+  --text-title: clamp(1.625rem, 1.25rem + 0.6vw, 2rem);
+  --text-title--line-height: 1.12;
+  --text-title--letter-spacing: -0.015em;
+  --text-card: clamp(1.375rem, 1.1rem + 0.5vw, 1.75rem);
+  --text-card--line-height: 1.08;
+  --text-card--letter-spacing: -0.015em;
+  --text-lead: clamp(1rem, 0.9rem + 0.35vw, 1.125rem);
+  --text-lead--line-height: 1.45;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.55;
+  --text-small: 0.8125rem;
+  --text-small--line-height: 1.4;
+  --text-label: 0.75rem;
+  --text-label--line-height: 1.3;
+  --text-button: 0.875rem;
+  --text-button--line-height: 1.25rem;
+
+  /* Inside a control, a button, a control, a surface. */
+  --radius-inner: 10px;
+  --radius-button: 12px;
+  --radius-control: 16px;
+  --radius-surface: 28px;
+
   /* The one easing curve: matches GSAP's "expo.out" (lib/motion.ts). */
   --ease-premium: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/*
- * The page surface, on the canvas itself so it covers every page edge to
- * edge and never restarts at a section: warm off-white with a fine dot grid,
- * one small crisp cool-grey dot every 24px both ways. Sections paint no background of
- * their own.
- */
 html {
   overflow-x: clip;
   background-color: var(--background);
-  background-image: radial-gradient(circle, var(--dot) 0.9px, transparent 1.15px);
-  background-size: 24px 24px;
-  background-position: 12px 12px;
+  background-image: radial-gradient(circle, var(--dot) 1.2px, transparent 1.2px);
+  background-size: 28px 28px;
+  background-position: 0 0;
+  background-repeat: repeat;
+  background-attachment: fixed;
 }
 
-/* MapLibre's controls, in the properties map's dark palette. */
-[data-map] .maplibregl-ctrl-group {
-  background: rgb(20 21 24 / 0.85);
-  border-radius: 999px;
-  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.1);
-  overflow: hidden;
-}
-
-[data-map] .maplibregl-ctrl-group button + button {
-  border-top-color: rgb(255 255 255 / 0.1);
-}
-
-[data-map] .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
-  filter: invert(0.92);
+[data-map] .maplibregl-map {
+  font-family: inherit;
 }
 
 [data-map] .maplibregl-ctrl-bottom-right {
@@ -78,19 +163,19 @@ html {
 [data-map] .maplibregl-ctrl.maplibregl-ctrl-attrib,
 [data-map] .maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact,
 [data-map] .maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact-show {
-  background: rgb(242 240 235 / 0.9);
-  color: rgb(20 21 24 / 0.55);
+  background: rgb(247 247 242 / 0.9);
+  color: rgb(16 47 50 / 0.7);
   font-size: 11px;
 }
 
 [data-map] .maplibregl-ctrl-attrib a {
-  color: rgb(20 21 24 / 0.75);
+  color: var(--brand-primary);
 }
 
 [data-map] .maplibregl-cooperative-gesture-screen {
-  background: rgb(20 21 24 / 0.72);
-  color: var(--warm);
-  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  background: rgb(16 47 50 / 0.8);
+  color: var(--brand-neutral);
+  font-family: var(--font-sans);
   font-size: 15px;
 }
 
@@ -119,15 +204,35 @@ html {
   }
 }
 
-/* No body background: the page colour comes from <html> (the canvas). */
-body {
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+/* The intro has been seen this session (lib/intro/config): it never paints. */
+html[data-intro-seen] [data-intro-overlay] {
+  display: none;
 }
 
+/* One clear focus ring everywhere; dark surfaces override it. */
+:focus-visible {
+  outline: 2px solid var(--focus-ring, var(--brand-primary));
+  outline-offset: 2px;
+}
+
+/* The header steps away on scrolling down (ScrollAwareHeader). */
+[data-site-header] {
+  transition: transform 0.45s var(--ease-premium);
+}
+[data-site-header][data-hidden="true"]:not(:has([data-menu-trigger][aria-expanded="true"], :focus-visible)) {
+  transform: translateY(-100%);
+}
+
+/* No body background: the page colour comes from <html> (the canvas). */
+body {
+  color: var(--brand-primary);
+  font-family: var(--font-sans);
+}
+
+
 ::selection {
-  background: var(--gold);
-  color: var(--ink);
+  background: var(--brand-accent);
+  color: var(--brand-primary);
 }
 
 /* Page transition (React <ViewTransition> on each page's <main>): the old

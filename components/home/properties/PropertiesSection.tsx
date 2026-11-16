@@ -1,14 +1,12 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import dynamic from "next/dynamic";
+import { useSearchParams } from "next/navigation";
 import gsap from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { EASE, prefersReducedMotion } from "@/lib/motion";
-import { PROPERTIES } from "@/lib/properties/properties";
-import { PropertyDetailPanel } from "./PropertyDetailPanel";
-
-gsap.registerPlugin(ScrollTrigger);
+import { HEADQUARTERS, LOCATIONS, PROPERTIES, PROPERTY_PARAM, propertyBySlug } from "@/lib/properties/properties";
+import { PropertyExplorer } from "./PropertyExplorer";
 
 // The map (MapLibre + OpenFreeMap) only exists in the browser, and its code
 // only loads with the section.
@@ -17,60 +15,59 @@ const AlbaniaPropertyMap = dynamic(() => import("./AlbaniaPropertyMap").then((mo
   loading: () => <div className="h-full w-full" />,
 });
 
-const pad = (n: number) => String(n).padStart(2, "0");
-
 /**
- * "Where we are": Infinity's destinations on a real map of Albania, with the
- * selected one in a detail panel beside it. Map pins, the panel's arrows and
- * the index below all drive one selection.
+ * The /properties page: an editorial introduction, then the seven destinations as
+ * one system, the map of Albania on the left and the glass cards beside it. A
+ * marker, a card, an arrow or a number all drive one selection; a card under the
+ * pointer shows its marker on the map.
  *
- * The /properties page; it sits on that page's dotted off-white.
+ * On Dark Forest Teal, so the light map plate stands out and the cards read as glass.
+ *
+ * The selection lives in the URL (/properties?property=hotel-butrinti): read from
+ * it, so a shared, refreshed or homepage link opens on that property from the first
+ * frame; choosing another pushes a history entry (no reload), so back and forward
+ * step through the choices. A missing or unknown value is the first property.
  */
 export function PropertiesSection() {
   const root = useRef<HTMLElement>(null);
-  const [selectedId, setSelectedId] = useState(PROPERTIES[0].id);
-  const tabs = useRef<(HTMLButtonElement | null)[]>([]);
-
-  const index = Math.max(0, PROPERTIES.findIndex((property) => property.id === selectedId));
-  const selected = PROPERTIES[index];
-  const count = PROPERTIES.length;
-
-  // From the latest selection, so quick repeated presses each count.
-  const step = useCallback((delta: number) => {
-    setSelectedId((current) => {
-      const from = PROPERTIES.findIndex((property) => property.id === current);
-      return PROPERTIES[(from + delta + PROPERTIES.length) % PROPERTIES.length].id;
-    });
+  const searchParams = useSearchParams();
+  const named = propertyBySlug(searchParams.get(PROPERTY_PARAM));
+  const selected = named ?? PROPERTIES[0];
+  const selectedId = selected.id;
+  const select = useCallback((id: string) => {
+    const property = LOCATIONS.find((candidate) => candidate.id === id);
+    if (!property) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get(PROPERTY_PARAM) === property.slug) return;
+    params.set(PROPERTY_PARAM, property.slug);
+    window.history.pushState(null, "", `?${params.toString()}`);
   }, []);
 
-  function onIndexKey(event: KeyboardEvent<HTMLDivElement>) {
-    const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-    if (!delta) return;
-    event.preventDefault();
-    const next = (index + delta + count) % count;
-    setSelectedId(PROPERTIES[next].id);
-    tabs.current[next]?.focus();
-  }
+  // Opened on a named property (a link from the homepage, a shared address): bring the map and
+  // its card into view, once, under the introduction.
+  const stage = useRef<HTMLDivElement>(null);
+  const arrivedNamed = useRef(Boolean(named));
+  useEffect(() => {
+    if (!arrivedNamed.current) return;
+    arrivedNamed.current = false;
+    const frame = window.setTimeout(() => stage.current?.scrollIntoView({ block: "center", behavior: prefersReducedMotion() ? "auto" : "smooth" }), 450);
+    return () => window.clearTimeout(frame);
+  }, []);
 
-  // Entrance: plays once, as the section comes into view.
+  // The entrance, in order: the eyebrow, the headline's two lines, the description, then the
+  // map rising into place and the cards stepping in from depth.
   useLayoutEffect(() => {
     const section = root.current;
     if (!section || prefersReducedMotion()) return;
     const q = gsap.utils.selector(section);
-
-    const entrance = gsap
-      .timeline({ paused: true, defaults: { ease: EASE } })
-      .fromTo(q("[data-title] > *"), { yPercent: 105 }, { yPercent: 0, duration: 1.1 }, 0)
-      .fromTo(q("[data-rise]"), { autoAlpha: 0, y: 16 }, { autoAlpha: 1, y: 0, duration: 0.9, stagger: 0.08 }, 0.12)
-      .fromTo(q("[data-map-frame]"), { autoAlpha: 0, y: 48 }, { autoAlpha: 1, y: 0, duration: 1.1 }, 0.22)
-      .fromTo(q("[data-panel-frame]"), { autoAlpha: 0, y: 48 }, { autoAlpha: 1, y: 0, duration: 1.1 }, 0.34);
-
-    const view = ScrollTrigger.create({ trigger: section, start: "top 85%", once: true, onEnter: () => entrance.play() });
-
-    return () => {
-      view.kill();
-      entrance.revert();
-    };
+    const intro = gsap
+      .timeline({ defaults: { ease: EASE } })
+      .fromTo(q("[data-eyebrow]"), { autoAlpha: 0, y: 10 }, { autoAlpha: 1, y: 0, duration: 0.7 }, 0.1)
+      .fromTo(q("[data-line]"), { yPercent: 108 }, { yPercent: 0, duration: 1.15, stagger: 0.12 }, 0.18)
+      .fromTo(q("[data-lede]"), { autoAlpha: 0, y: 16 }, { autoAlpha: 1, y: 0, duration: 0.9 }, 0.55)
+      .fromTo(q("[data-map-frame]"), { autoAlpha: 0, y: 36 }, { autoAlpha: 1, y: 0, duration: 1.2 }, 0.7)
+      .fromTo(q("[data-explorer]"), { autoAlpha: 0, y: 24, scale: 0.97 }, { autoAlpha: 1, y: 0, scale: 1, duration: 1.1 }, 0.85);
+    return () => void intro.revert();
   }, []);
 
   return (
@@ -78,75 +75,46 @@ export function PropertiesSection() {
       ref={root}
       id="properties"
       aria-labelledby="properties-title"
-      className="px-(--gutter) pb-[clamp(5rem,10vw,8rem)] pt-[clamp(3rem,7vw,6rem)] text-foreground"
+      data-header-surface
+      data-tone="dark"
+      className="relative isolate overflow-x-clip bg-petrol px-(--gutter) pb-[clamp(4rem,8vw,7rem)] pt-[calc(5rem+clamp(2.5rem,6vw,5rem))] text-neutral"
     >
-      <header className="grid gap-6 lg:grid-cols-12 lg:items-end">
-        <div className="lg:col-span-8">
-          <p data-rise className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.2em] text-foreground/55">
-            <span aria-hidden="true" className="h-px w-6 bg-signature" />
-            Our properties
-          </p>
-          <h2 id="properties-title" data-title className="mt-5 overflow-hidden pb-[0.08em]">
-            <span className="block text-[clamp(3.25rem,8vw,8.5rem)] font-medium leading-[0.9] tracking-[-0.055em]">
-              Where we <em className="font-serif text-[1.08em] font-normal italic tracking-[-0.02em]">are</em>
-              <span className="text-signature">.</span>
-            </span>
-          </h2>
-        </div>
-        <p data-rise className="max-w-sm text-[clamp(1rem,1.15vw,1.125rem)] leading-relaxed text-foreground/65 lg:col-span-4 lg:pb-3">
-          Explore the places we call home and discover opportunities across our destinations.
+      {/* The field's own faint dotted grid. */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle,rgb(247_247_242/0.07)_1.2px,transparent_1.2px)] bg-size-[28px_28px]" />
+
+      <header className="max-w-[72rem]">
+        <p data-eyebrow className="text-label font-medium tracking-[0.18em] text-accent">
+          EXPLORE INFINITY
+        </p>
+        <h1 id="properties-title" aria-label="7 Properties. One world." className="mt-5 text-[clamp(2.75rem,1.2rem+6.6vw,8.25rem)] font-bold leading-[0.9] tracking-[-0.04em]">
+          <span aria-hidden="true" className="block overflow-hidden pb-[0.06em]">
+            <span data-line className="block">7 PROPERTIES.</span>
+          </span>
+          <span aria-hidden="true" className="block overflow-hidden pb-[0.06em]">
+            <span data-line className="block text-accent">ONE WORLD.</span>
+          </span>
+        </h1>
+        <p data-lede className="mt-[clamp(1.25rem,2.5vw,2rem)] max-w-[38rem] text-lead text-neutral/75">
+          Discover the destinations behind Infinity. Explore our properties across Albania and the opportunities that connect them.
         </p>
       </header>
 
-      <div className="mt-[clamp(2.5rem,5vw,4.5rem)] grid gap-4 md:grid-cols-[1.08fr_1fr] lg:grid-cols-[52fr_48fr] lg:gap-5">
+      <div ref={stage} className="mt-[clamp(2.5rem,6vw,5rem)] grid scroll-mt-24 items-center gap-[clamp(1.5rem,3vw,3rem)] md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-cols-[minmax(0,48fr)_minmax(0,52fr)]">
         {/* Albania stands about twice as tall as it is wide: give it height. */}
-        <div data-map-frame className="h-[clamp(28rem,125vw,38rem)] min-w-0 md:h-auto md:min-h-[38rem] lg:h-[min(84vh,50rem)] lg:min-h-0">
-          <AlbaniaPropertyMap properties={PROPERTIES} selectedId={selectedId} onSelect={setSelectedId} />
+        <div data-map-frame className="relative h-[clamp(26rem,118vw,34rem)] min-w-0 md:h-[min(80vh,46rem)] lg:h-[min(86vh,52rem)]">
+          <AlbaniaPropertyMap locations={LOCATIONS} selectedId={selectedId} onSelect={select} />
+          {/* A property without verified coordinates has no pin: say so, in the map's free top corner. */}
+          {!selected.position && (
+            <p role="status" className="absolute left-0 top-0 max-w-[15rem] rounded-2xl bg-petrol/85 px-4 py-3 text-small text-neutral/80 ring-1 ring-neutral/15 backdrop-blur-md">
+              <span className="font-medium text-neutral">{selected.name}</span> is shown at {selected.city}&apos;s city point: its exact location is still to be confirmed.
+            </p>
+          )}
         </div>
-        <div data-panel-frame className="min-w-0">
-          <PropertyDetailPanel
-            properties={PROPERTIES}
-            property={selected}
-            onPrevious={() => step(-1)}
-            onNext={() => step(1)}
-          />
+
+        <div data-explorer className="min-w-0">
+          <PropertyExplorer properties={PROPERTIES} headquarters={HEADQUARTERS} selected={selected} onSelect={select} />
         </div>
       </div>
-
-      {/* The index: every destination one tap away; arrow keys move along it. */}
-      <div
-        data-rise
-        role="group"
-        aria-label="Choose a property"
-        onKeyDown={onIndexKey}
-        className="-mx-(--gutter) mt-6 flex gap-2 overflow-x-auto px-(--gutter) pb-1 [scrollbar-width:none]"
-      >
-        {PROPERTIES.map((property, i) => {
-          const active = property.id === selectedId;
-          return (
-            <button
-              key={property.id}
-              ref={(node) => {
-                tabs.current[i] = node;
-              }}
-              type="button"
-              aria-pressed={active}
-              tabIndex={active ? 0 : -1}
-              onClick={() => setSelectedId(property.id)}
-              className={`group flex shrink-0 cursor-pointer items-baseline gap-2.5 rounded-full px-4 py-2.5 text-left transition-colors duration-300 focus-visible:outline-2 focus-visible:outline-signature ${
-                active ? "bg-ink/[0.06] text-foreground" : "text-foreground/50 hover:text-foreground/80"
-              }`}
-            >
-              <span className={`font-mono text-[10.5px] ${active ? "text-gold-deep" : ""}`}>{pad(i + 1)}</span>
-              <span className="whitespace-nowrap text-[13.5px]">{property.name}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      <p aria-live="polite" className="sr-only">
-        {selected.name}, {selected.city}. Property {index + 1} of {count}.
-      </p>
     </section>
   );
 }

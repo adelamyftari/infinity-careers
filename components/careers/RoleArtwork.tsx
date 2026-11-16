@@ -75,18 +75,21 @@ const MOTIFS: Record<Job["category"], ReactNode> = {
 };
 
 type RoleArtworkProps = {
-  job: Job;
+  /** Encoding quality for its photograph (an allowed value in next.config: 75 by default, or 90). */
+  quality?: number;
+  /** The role pictured: an opening, or a role shown in the carousel without one. */
+  job: Pick<Job, "category" | "image" | "imagePosition">;
   sizes: string;
   className?: string;
 };
 
-export function RoleArtwork({ job, sizes, className = "" }: RoleArtworkProps) {
+export function RoleArtwork({ job, sizes, quality, className = "" }: RoleArtworkProps) {
   const accent = CATEGORIES[job.category].accent;
 
   if (job.image) {
     return (
       <div className={`relative overflow-hidden ${className}`}>
-        <Image src={job.image} alt="" fill sizes={sizes} className="object-cover" />
+        <Image src={job.image} alt="" fill sizes={sizes} quality={quality} className="object-cover" style={job.imagePosition ? { objectPosition: job.imagePosition } : undefined} />
       </div>
     );
   }
@@ -96,8 +99,8 @@ export function RoleArtwork({ job, sizes, className = "" }: RoleArtworkProps) {
       aria-hidden="true"
       className={`relative overflow-hidden ${className}`}
       style={{
-        backgroundColor: `color-mix(in oklab, ${accent} 13%, #f3f0e9)`,
-        backgroundImage: `radial-gradient(color-mix(in oklab, ${accent} 28%, transparent) 0.8px, transparent 0.8px), radial-gradient(120% 90% at 30% 0%, rgb(255 255 255 / 0.65), transparent 60%)`,
+        backgroundColor: `color-mix(in oklab, ${accent} 13%, #f7f7f2)`,
+        backgroundImage: `radial-gradient(color-mix(in oklab, ${accent} 28%, transparent) 0.8px, transparent 0.8px), radial-gradient(120% 90% at 30% 0%, rgb(247 247 242 / 0.65), transparent 60%)`,
         backgroundSize: "9px 9px, 100% 100%",
       }}
     >

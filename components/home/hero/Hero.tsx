@@ -1,49 +1,25 @@
 import type { ReactNode } from "react";
 import { JOBS } from "@/lib/careers/jobs";
 import { HeroExplorer } from "./HeroExplorer";
+import { HeroHeadline } from "./HeroHeadline";
 import { HeroStage } from "./HeroStage";
 
-/** A headline line that rises out of its own mask on entry. */
-function Line({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return (
-    // Padding inside the mask leaves room for descenders and the italic overhang.
-    <span className={`-mx-[0.1em] -mb-[0.08em] block overflow-hidden px-[0.1em] pb-[0.08em] ${className}`}>
-      <span data-line className="block will-change-transform">
-        {children}
-      </span>
-    </span>
-  );
-}
-
-function Accent({ children }: { children: ReactNode }) {
-  return <em className="font-serif text-[1.1em] font-normal italic tracking-[-0.02em]">{children}</em>;
-}
-
 /**
- * Homepage hero. An editorial grid: the headline set across
- * two staggered lines (the second indented by the column the search later
- * aligns to), and the role carousel breaking out to the full width.
+ * Homepage hero, composed for the whole first screen: the headline stepped
+ * across two lines, the search set on the second line's indent and running off
+ * the page's right edge, the role cards standing across the end of the colour
+ * field. `handoff` is what the orbit hands over to as the page scrolls past it.
+ *
+ * The vertical rhythm, set here for every width: --hero-title-space above the
+ * headline, --hero-search-space below it, --hero-cards-space between the search
+ * and the orbit, and --hero-field-reach for how far past the search the colour
+ * field runs (on top of half a card).
  */
-/** `handoff`: what the roles orbit hands over to as the page scrolls past it. */
 export function Hero({ handoff }: { handoff?: ReactNode }) {
   return (
-    <section className="relative isolate overflow-x-clip pb-16 pt-28 lg:pt-32">
+    <section className="relative isolate overflow-x-clip pb-16 pt-20 [--card-h:calc(var(--card-w)*0.66)] [--card-w:min(84vw,26rem)] [--hero-cards-space:0.5rem] [--hero-field-reach:3.5rem] [--hero-search-space:0.25rem] [--hero-title-space:0.75rem] md:[--hero-cards-space:0.75rem] md:[--hero-field-reach:4.25rem] md:[--hero-search-space:0.5rem] md:[--hero-title-space:1.25rem] lg:[--card-w:clamp(24rem,27vw,32rem)] xl:[--hero-cards-space:1.375rem] xl:[--hero-field-reach:5.75rem] xl:[--hero-search-space:0.75rem] xl:[--hero-title-space:2rem]">
       <HeroStage>
-        <div className="px-(--gutter)">
-          <div className="relative mt-[clamp(1.75rem,4.5vh,3.75rem)] pb-[clamp(2rem,5vh,3.5rem)]">
-            <h1 className="text-[clamp(3rem,9.6vw,10.75rem)] font-medium leading-[0.88] tracking-[-0.055em] text-foreground">
-              <Line>
-                Your next <Accent>move</Accent>
-              </Line>
-              <Line className="pl-[10%] lg:pl-[26%]">
-                starts <Accent>here</Accent>
-                <span className="text-gold">.</span>
-              </Line>
-            </h1>
-          </div>
-        </div>
-
-        <HeroExplorer jobs={JOBS} handoff={handoff} />
+        <HeroExplorer jobs={JOBS} heading={<HeroHeadline />} handoff={handoff} />
       </HeroStage>
     </section>
   );

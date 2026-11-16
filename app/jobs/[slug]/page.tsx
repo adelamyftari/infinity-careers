@@ -3,10 +3,15 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { RoleArtwork } from "@/components/careers/RoleArtwork";
 import { SiteHeader } from "@/components/home/SiteHeader";
-import { CATEGORIES, getJob, JOBS } from "@/lib/careers/jobs";
+import { CATEGORIES, getJob, openJobs } from "@/lib/careers/jobs";
+import { getCareersProperty } from "@/lib/careers/properties";
+import { CAREER_GROUP_LABEL, getDepartment } from "@/lib/careers/taxonomy";
+
+/** What a fact HR has not set yet reads as. */
+const UNSET = "To be confirmed";
 
 export function generateStaticParams() {
-  return JOBS.map((job) => ({ slug: job.slug }));
+  return openJobs().map((job) => ({ slug: job.slug }));
 }
 
 export async function generateMetadata({ params }: PageProps<"/jobs/[slug]">): Promise<Metadata> {
@@ -14,57 +19,64 @@ export async function generateMetadata({ params }: PageProps<"/jobs/[slug]">): P
   return { title: job ? `${job.title} · Infinity Careers` : "Role not found · Infinity Careers" };
 }
 
-/** Temporary role page, until the full job detail design exists. */
+/** A role: its title across the page, the photograph beside the facts that matter. */
 export default async function JobPage({ params }: PageProps<"/jobs/[slug]">) {
   const job = getJob((await params).slug);
-  if (!job) notFound();
+  if (!job || job.status !== "published") notFound();
   const category = CATEGORIES[job.category];
 
   const facts = [
-    ["Property", job.property],
-    ["Location", job.location],
-    ["Department", job.department],
-    ["Career group", category.group],
-    ["Experience", job.experience],
-    ["Job type", job.type],
+    ["Property", job.propertyId ? getCareersProperty(job.propertyId).name : UNSET],
+    ["Location", job.location ?? UNSET],
+    ["Department", getDepartment(job.departmentId).name],
+    ["Career group", CAREER_GROUP_LABEL[job.careerGroup]],
+    ["Experience", job.experienceLevel ?? UNSET],
+    ["Employment type", job.employmentTypes.length ? job.employmentTypes.join(", ") : UNSET],
   ];
 
   return (
     <>
       <SiteHeader />
-      <main className="flex-1 px-(--gutter) pb-24 pt-32">
-        <Link
-          href="/#roles"
-          className="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.18em] text-muted transition-colors hover:text-foreground"
-        >
+      <main className="flex-1 px-(--gutter) pb-[clamp(4rem,8vw,7rem)] pt-28">
+        <Link href="/roles" className="inline-block py-1 text-small text-muted underline-offset-4 transition-colors duration-200 hover:text-primary hover:underline">
           <span aria-hidden="true">←</span> All open roles
         </Link>
 
-        <div className="mt-10 grid gap-12 lg:grid-cols-[1.1fr_1fr] lg:gap-20">
-          <div>
-            <span className="inline-flex items-center gap-2 rounded-full border border-line bg-white px-3 py-1.5 font-mono text-[10.5px] uppercase tracking-[0.16em]">
-              <span className="size-1.5 rounded-full" style={{ backgroundColor: category.accent }} />
-              {category.label}
-            </span>
-            <h1 className="mt-6 text-[clamp(2.75rem,6vw,6rem)] font-medium leading-[0.92] tracking-[-0.05em]">{job.title}</h1>
-            <p className="mt-6 max-w-xl text-lg leading-relaxed text-muted">{job.summary}</p>
+        <header className="mt-[clamp(2rem,5vw,4rem)]">
+          <p className="flex items-center gap-2 text-small font-medium text-muted">
+            <span aria-hidden="true" className="size-2 rounded-full" style={{ backgroundColor: category.accent }} />
+            {category.label}
+          </p>
+          <h1 className="mt-4 max-w-[14ch] text-balance text-page font-medium">{job.title}</h1>
+        </header>
 
-            <dl className="mt-12 grid grid-cols-2 border-t border-line sm:grid-cols-3">
+        <div className="mt-[clamp(2rem,5vw,4.5rem)] grid gap-x-[clamp(2rem,6vw,6rem)] gap-y-10 lg:grid-cols-12">
+          <div className="lg:col-span-5">
+            <p className="text-lead">{job.summary}</p>
+
+            <dl className="mt-10 grid grid-cols-2 gap-x-6 border-t border-line">
               {facts.map(([term, detail]) => (
-                <div key={term} className="border-b border-line py-5 pr-4">
-                  <dt className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-muted">{term}</dt>
-                  <dd className="mt-1.5 font-medium">{detail}</dd>
+                <div key={term} className="border-b border-line py-4">
+                  <dt className="text-small text-muted">{term}</dt>
+                  <dd className="mt-1 text-body font-medium">{detail}</dd>
                 </div>
               ))}
             </dl>
 
-            <div className="mt-12 flex flex-wrap items-center gap-5">
-              <span className="rounded-[18px] bg-gold px-7 py-4 text-[15px] font-semibold text-ink">Applications open soon</span>
-              <p className="max-w-xs text-sm text-muted">The full role description and application form are on their way.</p>
+            <div className="mt-10">
+              <p className="flex items-center gap-2.5 text-body font-semibold">
+                <span aria-hidden="true" className="size-2 bg-accent" />
+                Applications open soon
+              </p>
+              <p className="mt-1.5 max-w-[42ch] text-body text-muted">The full role description and application form are on their way.</p>
             </div>
           </div>
 
-          <RoleArtwork job={job} sizes="(min-width: 1024px) 45vw, 100vw" className="aspect-[4/5] rounded-[32px] lg:aspect-auto lg:min-h-[36rem]" />
+          <RoleArtwork
+            job={job}
+            sizes="(min-width: 1024px) 55vw, 100vw"
+            className="aspect-[4/3] rounded-surface lg:col-span-7 lg:aspect-auto lg:min-h-[34rem]"
+          />
         </div>
       </main>
     </>

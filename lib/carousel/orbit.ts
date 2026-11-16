@@ -63,6 +63,7 @@ export type CardPlacement = {
 };
 
 export type OrbitLayout = {
+  cardWidth: number;
   radiusX: number;
   radiusZ: number;
   /** Projected pixels per step at the front: dragging this far moves one card. */
@@ -78,6 +79,8 @@ const FADE_MAX = 0.6;
 /** Opacity lost by θ = OPACITY_SPAN (quadratic, so the front stays crisp). */
 const OPACITY_DROP = 0.6;
 const OPACITY_SPAN = 80;
+/** Cards this near the front stay fully opaque: the page colours must not show through them. */
+const OPACITY_FROM = 36;
 /** Cards leave the arc between these angles round the orbit (deg). */
 const LEAVE_FROM = 68;
 const LEAVE_AT = 88;
@@ -125,7 +128,7 @@ export function createOrbitLayout({ cardWidth: w, perspective: p, gap, depth, sh
     const angle = offset * step;
     const { x, z, turn, scale } = pose(radiusX, angle);
     const distance = Math.abs(angle);
-    const depthOpacity = 1 - OPACITY_DROP * Math.min(1, (distance / OPACITY_SPAN) ** 2);
+    const depthOpacity = 1 - OPACITY_DROP * Math.min(1, (Math.max(0, distance - OPACITY_FROM) / (OPACITY_SPAN - OPACITY_FROM)) ** 2);
     const leaving = clamp((LEAVE_AT - distance) / (LEAVE_AT - LEAVE_FROM), 0, 1);
     return {
       x,
@@ -141,5 +144,5 @@ export function createOrbitLayout({ cardWidth: w, perspective: p, gap, depth, sh
   // At the front a card moves radiusX·step(rad) px per step.
   const stride = count >= 2 ? radiusX * step * RAD : w + gap;
 
-  return { radiusX, radiusZ: radiusX * depth, stride, place };
+  return { cardWidth: w, radiusX, radiusZ: radiusX * depth, stride, place };
 }
