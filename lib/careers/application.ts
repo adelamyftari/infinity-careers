@@ -3,23 +3,24 @@
  * the form (inline errors) and the server (app/api/applications/route.ts),
  * which checks everything again and never trusts what the browser says.
  *
- * Two steps. Step 01: who the candidate is (four fields), what they are
- * applying for (the property, position level and contract type, chosen only
- * among the combinations the position's listings offer) and whether they have
- * worked before. Step 02: the CV and the privacy acknowledgment.
+ * Two steps. Step 01: who the candidate is (first and last name and phone
+ * required, email optional), how much work experience they have (one answer
+ * of five), the employment type they would prefer (one of four, chosen freely)
+ * and, only for a position at more than one property, where they would like to
+ * work. Step 02: the CV (optional) and the privacy acknowledgment.
  *
- * The position level applied for and the candidate's own experience are kept
- * apart and never derived from each other: an entry-level applicant may have
- * years of experience, and a first job seeker is not "Entry Level" by default.
+ * No position level is asked: the levels are not set officially for each
+ * position. The employment type is the candidate's preference, never a
+ * confirmed contract, and their experience is about them, not the position's
+ * seniority.
  *
  * It asks only what recruitment needs: no date of birth, gender, marital
  * status, religion or identity number.
  */
 
-import { interestPropertyChoice, preferenceChoices, ANY_PROPERTY, UNSET, type Offering, type PreferenceChoices, type Preferences, EMPTY_PREFERENCES } from "./offerings";
-import type { PropertyId } from "./properties";
+import { getCareersProperty, propertiesIn, type PropertyId } from "./properties";
 import type { RoleEntry } from "./roles";
-import type { EmploymentType, ExperienceLevel } from "./taxonomy";
+import { EMPLOYMENT_TYPES, type EmploymentType } from "./taxonomy";
 
 /* -------------------------------------------------------------------- CV */
 
@@ -54,41 +55,51 @@ export function cvProblem(file: { name: string; type: string; size: number }): s
 
 /* ------------------------------------------------------------ experience */
 
+/** The one experience question's answers, as the form offers them, as stored, and as HR filters them. */
+export const EXPERIENCE_RANGES = ["No Experience", "0–1 Year", "1–2 Years", "3–5 Years", "More than 5 Years"] as const;
+export type ExperienceRange = (typeof EXPERIENCE_RANGES)[number];
+
+/** HR's classification: no_experience for No Experience, with_experience for any range (0–1 Year is some experience). */
 export const EXPERIENCE_STATUSES = ["no_experience", "with_experience"] as const;
 export type ExperienceStatus = (typeof EXPERIENCE_STATUSES)[number];
 
-export const EXPERIENCE_STATUS_LABEL: Record<ExperienceStatus, string> = {
-  no_experience: "No previous experience",
-  with_experience: "I have work experience",
-};
+export const isExperienceRange = (value: string): value is ExperienceRange => (EXPERIENCE_RANGES as readonly string[]).includes(value);
 
-/** As stored, and as HR filters them. */
-export const EXPERIENCE_YEARS = ["Less than 1 year", "1–2 years", "3–5 years", "More than 5 years"] as const;
-export type ExperienceYears = (typeof EXPERIENCE_YEARS)[number];
+export const experienceStatusOf = (range: ExperienceRange): ExperienceStatus => (range === "No Experience" ? "no_experience" : "with_experience");
 
-export type Experience = { status: ExperienceStatus | ""; years: string; previousPosition: string };
+export function experienceErrors(range: string): Errors {
+  return isExperienceRange(range) ? {} : { experience: "Please choose how much work experience you have." };
+}
 
-export const EMPTY_EXPERIENCE: Experience = { status: "", years: "", previousPosition: "" };
+/** The experience as stored: the range as answered, and its classification. */
+export function storedExperience(range: ExperienceRange): { experience_status: ExperienceStatus; experience_years: ExperienceRange; previous_position: null } {
+  return { experience_status: experienceStatusOf(range), experience_years: range, previous_position: null };
+}
 
 /* ------------------------------------------------------------ the record */
 
 export type Personal = { firstName: string; lastName: string; email: string; phone: string };
 
-export type ApplicationInput = { roleId: string; personal: Personal; preferences: Preferences; experience: Experience; privacy: boolean };
+/** What the candidate chose: the property ("" until chosen; asked only when there are several) and the employment type they prefer. */
+export type Preferences = { propertyId: string; employmentType: string };
+
+export const EMPTY_PREFERENCES: Preferences = { propertyId: "", employmentType: "" };
+
+export type ApplicationInput = { roleId: string; personal: Personal; preferences: Preferences; experience: string; privacy: boolean };
 
 export const EMPTY_PERSONAL: Personal = { firstName: "", lastName: "", email: "", phone: "" };
 
 /** What the visitor has entered for a role: kept by the page while it is open, so closing the form never loses it. */
-export type ApplicationDraft = { step: 0 | 1; personal: Personal; preferences: Preferences; experience: Experience; privacy: boolean; cv: File | null };
+export type ApplicationDraft = { step: 0 | 1; personal: Personal; preferences: Preferences; experience: string; privacy: boolean; cv: File | null };
 
-export const newDraft = (): ApplicationDraft => ({ step: 0, personal: { ...EMPTY_PERSONAL }, preferences: { ...EMPTY_PREFERENCES }, experience: { ...EMPTY_EXPERIENCE }, privacy: false, cv: null });
+export const newDraft = (): ApplicationDraft => ({ step: 0, personal: { ...EMPTY_PERSONAL }, preferences: { ...EMPTY_PREFERENCES }, experience: "", privacy: false, cv: null });
 
-export const LIMITS = { name: 60, email: 254, phone: 24, previousPosition: 80 } as const;
+export const LIMITS = { name: 60, email: 254, phone: 24 } as const;
 
 export type Errors = Partial<Record<string, string>>;
 
 /** The fields of step 01, by the keys errors use (step 02 has `cv` and `privacy`). */
-export const STEP_ONE_KEYS = ["firstName", "lastName", "email", "phone", "property", "level", "employmentType", "experienceStatus", "experienceYears", "previousPosition"] as const;
+export const STEP_ONE_KEYS = ["firstName", "lastName", "phone", "email", "experience", "employmentType", "property"] as const;
 
 const NAME = /^[\p{L}\p{M}][\p{L}\p{M}' .-]*$/u;
 const EMAIL = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
@@ -104,91 +115,79 @@ export function personalErrors(p: Personal): Errors {
   };
   name("firstName", "first name");
   name("lastName", "last name");
-  const email = p.email.trim();
-  if (!email) e.email = "Please enter your email address.";
-  else if (email.length > LIMITS.email || !EMAIL.test(email)) e.email = "Please enter a valid email address, like name@example.com.";
   const phone = p.phone.trim();
   const digits = phone.replace(/\D/g, "").length;
-  if (!phone) e.phone = "Please enter your phone number.";
+  if (!phone) e.phone = "Please enter your phone number, so our recruitment team can reach you.";
   else if (phone.length > LIMITS.phone || !PHONE.test(phone) || digits < 7 || digits > 15) e.phone = "Please enter a valid phone number, with the country code if outside Albania.";
+  // Optional: checked only when given.
+  const email = p.email.trim();
+  if (email && (email.length > LIMITS.email || !EMAIL.test(email))) e.email = "Please enter a valid email address, like name@example.com, or leave it empty.";
   return e;
-}
-
-export function experienceErrors(x: Experience): Errors {
-  const e: Errors = {};
-  if (!(EXPERIENCE_STATUSES as readonly string[]).includes(x.status)) e.experienceStatus = "Please tell us whether you have previous work experience.";
-  else if (x.status === "with_experience") {
-    if (!(EXPERIENCE_YEARS as readonly string[]).includes(x.years)) e.experienceYears = "Please choose your years of experience.";
-    if (x.previousPosition.trim().length > LIMITS.previousPosition) e.previousPosition = `Please keep it under ${LIMITS.previousPosition} characters.`;
-  }
-  return e;
-}
-
-/** The experience as stored: nothing about years or a previous job for someone without experience. */
-export function storedExperience(x: Experience): { experience_status: ExperienceStatus; experience_years: ExperienceYears | null; previous_position: string | null } {
-  if (x.status !== "with_experience") return { experience_status: "no_experience", experience_years: null, previous_position: null };
-  return { experience_status: "with_experience", experience_years: x.years as ExperienceYears, previous_position: x.previousPosition.trim() || null };
 }
 
 /* ----------------------------------------------------------- preferences */
 
-/** The choices the form offers for a role, given what has been chosen. */
-export type RoleChoices =
-  | ({ kind: "vacancy" } & PreferenceChoices)
-  | { kind: "role"; property: PreferenceChoices["property"] };
+/** An expression of interest's "any of these properties". */
+export const ANY_PROPERTY = "any";
 
-export function roleChoices(entry: Pick<RoleEntry, "kind" | "offerings" | "propertyIds">, preferences: Preferences): RoleChoices {
-  if (entry.kind === "vacancy") return { kind: "vacancy", ...preferenceChoices(entry.offerings, preferences) };
-  return { kind: "role", property: interestPropertyChoice(entry.propertyIds, preferences.propertyId) };
+type Locatable = Pick<RoleEntry, "kind" | "offerings" | "propertyIds">;
+
+/** The properties a candidate can choose between for a role: asked only when there are two or more. */
+export function locationOptions(entry: Locatable): string[] {
+  const order = propertiesIn(null).map((p) => p.id as string);
+  const ids =
+    entry.kind === "vacancy"
+      ? [...new Set(entry.offerings.map((o) => o.propertyId).filter((id): id is PropertyId => id !== null))]
+      : [...entry.propertyIds];
+  const sorted = ids.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  if (sorted.length < 2) return [];
+  return entry.kind === "role" ? [...sorted, ANY_PROPERTY] : sorted;
 }
 
-/** What the application is for, once the choices are complete and valid: the stored values. */
+/** A location option as the form names it. */
+export function locationLabel(value: string, label: (id: PropertyId) => string): string {
+  if (value === ANY_PROPERTY) return "Any of these locations";
+  return `${label(value as PropertyId)} · ${getCareersProperty(value as PropertyId).city}`;
+}
+
+export const isEmploymentType = (value: string): value is EmploymentType => (EMPLOYMENT_TYPES as readonly string[]).includes(value);
+
+/** What the application is for, once the choices are valid: the stored values. */
 export type Resolved = {
+  /** The listing applied through (an expression of interest has none). */
   vacancyId: string | null;
   propertyId: PropertyId | null;
-  level: ExperienceLevel | null;
-  employmentType: EmploymentType | null;
+  /** The candidate's preference, not a confirmed contract. */
+  employmentType: EmploymentType;
 };
 
-const fromOffering = (o: Offering): Resolved => ({ vacancyId: o.vacancyId, propertyId: o.propertyId, level: o.level, employmentType: o.employmentType });
-
-/** The values in force for what was chosen: what the form sends (a stale choice is not one of them). */
-export function effectivePreferences(choices: RoleChoices): Preferences {
-  return {
-    propertyId: choices.property.value,
-    level: choices.kind === "vacancy" ? choices.level.value : "",
-    employmentType: choices.kind === "vacancy" ? choices.employmentType.value : "",
-  };
-}
-
-const NOT_OFFERED = "This option is not offered for this position. Please choose again.";
-
 /**
- * The preferences' errors, and, when there are none, what they resolve to: on
- * a vacancy, one real offering of its listings; on a career role, a property it
- * is relevant at (or none). Strict: a value given that is not one of the
- * options in force (Part-time for a level offered only full-time, a property
- * the role is not at) is refused, never quietly replaced.
+ * The choices' errors, and, when there are none, what they resolve to. The
+ * employment type is any of the four, chosen freely. The property is asked only
+ * where the role is at several: a value that is not one of its properties is
+ * refused, never quietly replaced. A position's listing is the first one at the
+ * chosen property (or its first, when there is no choice).
  */
-export function preferenceResult(entry: Pick<RoleEntry, "kind" | "offerings" | "propertyIds">, preferences: Preferences): { errors: Errors; resolved: Resolved | null } {
-  const choices = roleChoices(entry, preferences);
-  const effective = effectivePreferences(choices);
+export function preferenceResult(entry: Locatable, preferences: Preferences): { errors: Errors; resolved: Resolved | null } {
   const errors: Errors = {};
-  if (preferences.propertyId && preferences.propertyId !== effective.propertyId) errors.property = NOT_OFFERED;
-  if (preferences.level && preferences.level !== effective.level) errors.level = NOT_OFFERED;
-  if (preferences.employmentType && preferences.employmentType !== effective.employmentType) errors.employmentType = NOT_OFFERED;
-  if (Object.keys(errors).length) return { errors, resolved: null };
-  if (!choices.property.value) errors.property = "Please choose the location you would like to apply to.";
-  if (choices.kind === "role") {
-    if (Object.keys(errors).length) return { errors, resolved: null };
-    const value = choices.property.value;
-    return { errors, resolved: { vacancyId: null, propertyId: value && value !== ANY_PROPERTY && value !== UNSET ? (value as PropertyId) : null, level: null, employmentType: null } };
+  const options = locationOptions(entry);
+  const wanted = preferences.propertyId;
+  if (options.length) {
+    if (!wanted) errors.property = "Please choose the location you would like to work at.";
+    else if (!options.includes(wanted)) errors.property = "This location is not offered for this position. Please choose again.";
   }
-  if (choices.property.value && !choices.level.value) errors.level = "Please choose the position level you are applying for.";
-  if (choices.level.value && !choices.employmentType.value) errors.employmentType = "Please choose your preferred employment type.";
+  if (!preferences.employmentType) errors.employmentType = "Please choose your preferred employment type.";
+  else if (!isEmploymentType(preferences.employmentType)) errors.employmentType = "Please choose one of the employment types offered.";
   if (Object.keys(errors).length) return { errors, resolved: null };
-  if (!choices.offering) return { errors: { employmentType: "This combination is not offered. Please choose again." }, resolved: null };
-  return { errors, resolved: fromOffering(choices.offering) };
+
+  const employmentType = preferences.employmentType as EmploymentType;
+  // Asked: the choice. Not asked: the role's only property, if it has one.
+  const single = entry.kind === "vacancy" ? (entry.offerings.find((o) => o.propertyId)?.propertyId ?? null) : (entry.propertyIds[0] ?? null);
+  const propertyId = options.length ? (wanted === ANY_PROPERTY ? null : (wanted as PropertyId)) : single;
+  if (entry.kind === "role") return { errors, resolved: { vacancyId: null, propertyId, employmentType } };
+  const listing = (propertyId && entry.offerings.find((o) => o.propertyId === propertyId)) || entry.offerings[0];
+  if (!listing) return { errors: { employmentType: "This position is no longer accepting applications." }, resolved: null };
+  return { errors, resolved: { vacancyId: listing.vacancyId, propertyId, employmentType } };
 }
 
 /* --------------------------------------------------------------- privacy */

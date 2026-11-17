@@ -37,12 +37,7 @@ export const RoleCard = memo(function RoleCard({ entry, onOpen, onApply }: RoleC
   const path = size ? cardSilhouette(size.w, size.h, PILL_WIDTH, PILL_HEIGHT) : null;
   const where = roleWhere(entry);
   const vacancy = entry.kind === "vacancy";
-  // What its listings offer, all on the one card: never a card per level or per contract.
-  const offered: [string, string[]][] = [
-    ["LEVELS", entry.levels],
-    ["CONTRACT", entry.employmentTypes],
-  ];
-  const facts = offered.filter(([, values]) => values.length > 0);
+  // One card per position. Levels and contract types are not shown: they are not set officially for each position.
   const rimId = `rim-${entry.id.replace(/[^a-z0-9-]/gi, "-")}`;
 
   function onPointerMove(event: PointerEvent<HTMLDivElement>) {
@@ -125,16 +120,6 @@ export const RoleCard = memo(function RoleCard({ entry, onOpen, onApply }: RoleC
                   {where.location}
                 </p>
                 <p className="mt-0.5 text-small text-muted">{departmentName(entry)}</p>
-                {facts.length > 0 && (
-                  <dl aria-label="Available options" className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3 gap-y-1">
-                    {facts.map(([term, values]) => (
-                      <div key={term} className="contents">
-                        <dt className="text-label font-medium tracking-[0.14em] text-muted">{term}</dt>
-                        <dd className="truncate text-small text-primary">{values.join(" · ")}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                )}
                 <p className="mt-3 line-clamp-3 text-small text-muted">{entry.summary}</p>
               </div>
 

@@ -4,35 +4,31 @@ import { useLayoutEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { InfinityMark } from "@/components/brand/InfinityMark";
 import {
-  effectivePreferences,
-  EXPERIENCE_STATUS_LABEL,
-  EXPERIENCE_STATUSES,
-  EXPERIENCE_YEARS,
+  EXPERIENCE_RANGES,
   experienceErrors,
   LIMITS,
+  locationLabel,
+  locationOptions,
   personalErrors,
   preferenceResult,
   PRIVACY_ERROR,
   PRIVACY_POLICY_URL,
-  roleChoices,
   STEP_ONE_KEYS,
   type ApplicationDraft,
   type ApplicationInput,
   type Errors,
-  type Experience,
   type Personal,
-  type RoleChoices,
+  type Preferences,
 } from "@/lib/careers/application";
-import { propertyOptionLabel, UNSET, valueLabel, type Choice, type Preferences } from "@/lib/careers/offerings";
 import { getCareersProperty } from "@/lib/careers/properties";
 import { departmentName, propertyLabel, roleWhere, type RoleEntry } from "@/lib/careers/roles";
-import { CAREER_GROUP_LABEL } from "@/lib/careers/taxonomy";
+import { CAREER_GROUP_LABEL, EMPLOYMENT_TYPES } from "@/lib/careers/taxonomy";
 import { EASE, prefersReducedMotion } from "@/lib/motion";
 import { Modal, ModalCloseButton, useModalClose } from "../Modal";
 import { CvUpload } from "./CvUpload";
-import { FieldGroup, FixedField, RadioField, SelectField, TextField, type Option } from "./fields";
+import { FieldGroup, RadioField, SelectField, TextField } from "./fields";
 
-const STEPS = ["PERSONAL DETAILS & JOB PREFERENCES", "UPLOAD CV & SUBMIT"] as const;
+const STEPS = ["PERSONAL DETAILS & PREFERENCES", "CV & SUBMIT"] as const;
 
 type ApplicationDialogProps = {
   entry: RoleEntry;
@@ -89,17 +85,15 @@ function scrollerOf(el: HTMLElement): HTMLElement | null {
 const stepOf = (key: string): 0 | 1 => ((STEP_ONE_KEYS as readonly string[]).includes(key) ? 0 : 1);
 const fieldId = (key: string) => (key === "cv" ? "cv-label" : `app-${key}`);
 
-const propertyName = (value: string) => propertyOptionLabel(value, propertyLabel);
-const options = (choice: Choice, label: (value: string) => string = valueLabel): Option[] => choice.options.map((value) => ({ value, label: label(value) }));
+const propertyName = (value: string) => locationLabel(value, propertyLabel);
 
 function ApplicationFlow({ entry, draft, onDraft, onExplore }: ApplicationDialogProps) {
   const close = useModalClose();
   const vacancy = entry.kind === "vacancy";
   const { step, personal, preferences, experience, privacy, cv } = draft;
-  const choices = roleChoices(entry, preferences);
-  // What is in force (a field's only option, a choice still offered), not a stale earlier choice.
-  const effective = effectivePreferences(choices);
-  const preference = preferenceResult(entry, effective);
+  // The location is asked only when the role is at several properties.
+  const locations = locationOptions(entry);
+  const preference = preferenceResult(entry, preferences);
 
   const [attempted, setAttempted] = useState<[boolean, boolean]>([false, false]);
   const [serverFields, setServerFields] = useState<Errors>({});
@@ -118,21 +112,19 @@ function ApplicationFlow({ entry, draft, onDraft, onExplore }: ApplicationDialog
     clearServer(key);
     update({ personal: { ...personal, [key]: value } });
   };
-  // A choice upstream may rule out one below it; what is still offered is kept (lib/careers/offerings).
   const setPreference = (key: keyof Preferences, errorKey: string, value: string) => {
     clearServer(errorKey);
     update({ preferences: { ...preferences, [key]: value } });
   };
-  // Switching to "no experience" keeps the years and the previous job in the draft (they are not
-  // sent), so switching back finds them again.
-  const setExperience = (key: keyof Experience, errorKey: string, value: string) => {
-    clearServer(errorKey);
-    update({ experience: { ...experience, [key]: value } });
+  const setExperience = (value: string) => {
+    clearServer("experience");
+    update({ experience: value });
   };
 
+  // The CV is optional: only a file that is there is checked (CvUpload turns a wrong one away).
   const errorsByStep: [Errors, Errors] = [
-    { ...personalErrors(personal), ...preference.errors, ...experienceErrors(experience) },
-    { ...(cv ? {} : { cv: "Please upload your CV." }), ...(privacy ? {} : { privacy: PRIVACY_ERROR }) },
+    { ...personalErrors(personal), ...experienceErrors(experience), ...preference.errors },
+    privacy ? {} : { privacy: PRIVACY_ERROR },
   ];
   const shown = (s: 0 | 1): Errors => ({ ...(attempted[s] ? errorsByStep[s] : {}), ...Object.fromEntries(Object.entries(serverFields).filter(([k, v]) => v && stepOf(k) === s)) });
   const err = shown(step);
@@ -196,23 +188,23 @@ function ApplicationFlow({ entry, draft, onDraft, onExplore }: ApplicationDialog
       if (firstBad !== step) go(firstBad);
       return focusFirst(errorsByStep[firstBad]);
     }
-    if (!cv) return;
-
     setSubmitting(true);
     setServerError(null);
     setServerFields({});
     setProgress(0);
-    const input: ApplicationInput = { roleId: entry.id, personal, preferences: effective, experience, privacy };
+    // Only what applies: a location the role does not ask for is not sent.
+    const input: ApplicationInput = { roleId: entry.id, personal, preferences: { ...preferences, propertyId: locations.length ? preferences.propertyId : "" }, experience, privacy };
     const form = new FormData();
     form.set("application", JSON.stringify(input));
-    form.set("cv", cv, cv.name);
+    // No CV chosen: nothing is attached (never an empty file).
+    if (cv) form.set("cv", cv, cv.name);
     form.set("company_website", (document.getElementById("app-company-website") as HTMLInputElement | null)?.value ?? "");
     const result = await send(form, setProgress);
     setSubmitting(false);
     setProgress(null);
 
     if (!result) {
-      setServerError("We couldn't reach our server. Please check your connection and try again: everything you entered, and your CV, is still here.");
+      setServerError(`We couldn't reach our server. Please check your connection and try again: everything you entered${cv ? ", and your CV," : ""} is still here.`);
       return;
     }
     const { status, reply } = result;
@@ -285,8 +277,8 @@ function ApplicationFlow({ entry, draft, onDraft, onExplore }: ApplicationDialog
             <span className="text-accent tabular-nums">{String(step + 1).padStart(2, "0")}</span> — {STEPS[step]}
           </h3>
           <p className="mt-1 text-small text-neutral/60">
-            {step === 0 && "How we can reach you, what you are applying for, and your experience. No account is needed."}
-            {step === 1 && "Add your CV and send. Nothing is submitted before you do."}
+            {step === 0 && "How we can reach you, your experience, and the work you would prefer. No account is needed."}
+            {step === 1 && "Add your CV if you have one, and send. Nothing is submitted before you do."}
           </p>
 
           <div className="mt-6 grid gap-6">
@@ -295,50 +287,56 @@ function ApplicationFlow({ entry, draft, onDraft, onExplore }: ApplicationDialog
                 <FieldGroup title="PERSONAL INFORMATION">
                   <TextField id="app-firstName" label="First name" required autoComplete="given-name" maxLength={LIMITS.name} value={personal.firstName} onChange={(v) => setPersonal("firstName", v)} error={err.firstName} />
                   <TextField id="app-lastName" label="Last name" required autoComplete="family-name" maxLength={LIMITS.name} value={personal.lastName} onChange={(v) => setPersonal("lastName", v)} error={err.lastName} />
-                  <TextField id="app-email" label="Email address" type="email" inputMode="email" required autoComplete="email" maxLength={LIMITS.email} value={personal.email} onChange={(v) => setPersonal("email", v)} error={err.email} />
                   <TextField id="app-phone" label="Phone number" type="tel" inputMode="tel" required autoComplete="tel" maxLength={LIMITS.phone} placeholder="+355 …" value={personal.phone} onChange={(v) => setPersonal("phone", v)} error={err.phone} />
+                  <TextField id="app-email" label="Email address" type="email" inputMode="email" autoComplete="email" maxLength={LIMITS.email} value={personal.email} onChange={(v) => setPersonal("email", v)} error={err.email} />
                 </FieldGroup>
 
-                <FieldGroup title={vacancy ? "JOB PREFERENCES" : "LOCATION PREFERENCE"}>
-                  <JobPreferences choices={choices} err={err} onChange={setPreference} />
-                </FieldGroup>
-
+                {/* About the candidate, not the position's seniority: one answer, none preselected. */}
                 <FieldGroup title="YOUR EXPERIENCE">
                   <RadioField
-                    id="app-experienceStatus"
-                    label="Do you have previous work experience?"
+                    id="app-experience"
+                    label="How much work experience do you have?"
                     required
+                    lead
                     className="md:col-span-2"
-                    options={EXPERIENCE_STATUSES.map((value) => ({ value, label: EXPERIENCE_STATUS_LABEL[value] }))}
-                    value={experience.status}
-                    onChange={(v) => setExperience("status", "experienceStatus", v)}
-                    error={err.experienceStatus}
+                    options={EXPERIENCE_RANGES.map((value) => ({ value, label: value }))}
+                    value={experience}
+                    onChange={setExperience}
+                    error={err.experience}
                   />
-                  {experience.status === "with_experience" && (
-                    <>
-                      <RadioField
-                        id="app-experienceYears"
-                        label="Years of experience"
-                        required
-                        grid
-                        className="md:col-span-2"
-                        options={EXPERIENCE_YEARS.map((value) => ({ value, label: value }))}
-                        value={experience.years}
-                        onChange={(v) => setExperience("years", "experienceYears", v)}
-                        error={err.experienceYears}
-                      />
-                      <TextField
-                        id="app-previousPosition"
-                        label="Previous job position"
-                        maxLength={LIMITS.previousPosition}
-                        placeholder="e.g. Receptionist, Dealer, Waiter"
-                        value={experience.previousPosition}
-                        onChange={(v) => setExperience("previousPosition", "previousPosition", v)}
-                        error={err.previousPosition}
-                      />
-                    </>
-                  )}
                 </FieldGroup>
+
+                {/* The candidate's preference, chosen freely: not a confirmed contract. */}
+                <FieldGroup title="PREFERRED EMPLOYMENT TYPE">
+                  <RadioField
+                    id="app-employmentType"
+                    label="Which type of employment would you prefer?"
+                    required
+                    grid
+                    className="md:col-span-2"
+                    options={EMPLOYMENT_TYPES.map((value) => ({ value, label: value }))}
+                    value={preferences.employmentType}
+                    onChange={(v) => setPreference("employmentType", "employmentType", v)}
+                    error={err.employmentType}
+                  />
+                </FieldGroup>
+
+                {/* Only where the role is at several properties. */}
+                {locations.length > 0 && (
+                  <FieldGroup title="PREFERRED LOCATION">
+                    <div className="md:col-span-2">
+                      <SelectField
+                        id="app-property"
+                        label="Where would you like to work?"
+                        required
+                        options={locations.map((value) => ({ value, label: propertyName(value) }))}
+                        value={locations.includes(preferences.propertyId) ? preferences.propertyId : ""}
+                        onChange={(v) => setPreference("propertyId", "property", v)}
+                        error={err.property}
+                      />
+                    </div>
+                  </FieldGroup>
+                )}
               </>
             )}
 
@@ -354,7 +352,15 @@ function ApplicationFlow({ entry, draft, onDraft, onExplore }: ApplicationDialog
                   progress={progress}
                 />
 
-                <Summary entry={entry} choices={choices} experience={experience} onEdit={() => go(0)} />
+                <Summary
+                  rows={[
+                    ["Applied position", entry.title],
+                    ...(locations.includes(preferences.propertyId) ? ([["Location", propertyName(preferences.propertyId)]] as [string, string][]) : []),
+                    ["Experience", experience],
+                    ["Preferred employment type", preferences.employmentType],
+                  ]}
+                  onEdit={() => go(0)}
+                />
 
                 <div>
                   <label className="flex cursor-pointer items-start gap-3">
@@ -422,8 +428,8 @@ function ApplicationFlow({ entry, draft, onDraft, onExplore }: ApplicationDialog
           {step === 0 ? (
             <button type="button" onClick={next} className="group/cta inline-flex h-12 cursor-pointer items-center gap-2 rounded-[14px] bg-neutral px-6 text-small font-semibold tracking-[0.06em] text-petrol transition-colors duration-300 hover:bg-accent">
               CONTINUE
-              <span aria-hidden="true" className="transition-transform duration-500 ease-premium group-hover/cta:-translate-y-0.5 group-hover/cta:translate-x-0.5">
-                ↗
+              <span aria-hidden="true" className="transition-transform duration-500 ease-premium group-hover/cta:translate-x-0.5">
+                →
               </span>
             </button>
           ) : (
@@ -455,78 +461,8 @@ function ApplicationFlow({ entry, draft, onDraft, onExplore }: ApplicationDialog
   );
 }
 
-/**
- * The location, the position level and the contract type, in that order: each
- * offers only what the listings offer given the choices before it. Nothing is
- * preselected: a single level or contract is still the candidate's to choose.
- * A value HR has not set is not a choice and is not shown at all (no "to be
- * confirmed" field); one property is shown as where the role is.
- */
-function JobPreferences({ choices, err, onChange }: { choices: RoleChoices; err: Errors; onChange: (key: keyof Preferences, errorKey: string, value: string) => void }) {
-  const only = (choice: Choice) => (choice.options.length === 1 ? choice.options[0] : null);
-  const property =
-    choices.property.options.length > 1 ? (
-      <SelectField
-        id="app-property"
-        label={choices.kind === "vacancy" ? "Which location would you like to apply to?" : "Which location would you like to work at?"}
-        required
-        options={options(choices.property, propertyName)}
-        value={choices.property.value}
-        onChange={(v) => onChange("propertyId", "property", v)}
-        error={err.property}
-      />
-    ) : only(choices.property) && only(choices.property) !== UNSET ? (
-      <FixedField id="app-property" label="Location" value={propertyName(only(choices.property) ?? "")} note="Where this role is" />
-    ) : null;
-
-  if (choices.kind === "role")
-    return (
-      <>
-        {property && <div className="md:col-span-2">{property}</div>}
-        <p className="text-small text-neutral/60 md:col-span-2">There is no open vacancy for this role right now, so there is no level or contract to choose. HR will discuss them if a position opens.</p>
-      </>
-    );
-
-  const levelUnset = only(choices.level) === UNSET;
-  const level = !choices.property.value ? (
-    <FixedField id="app-level" label="Which position level are you applying for?" value="Choose a location first" />
-  ) : levelUnset ? null : (
-    <RadioField id="app-level" label="Which position level are you applying for?" required options={options(choices.level)} value={choices.level.value} onChange={(v) => onChange("level", "level", v)} error={err.level} />
-  );
-
-  const type = !choices.level.value ? (
-    <FixedField id="app-employmentType" label="Preferred employment type" value={choices.property.value ? "Choose a position level first" : "Choose a location first"} />
-  ) : only(choices.employmentType) === UNSET ? null : (
-    <RadioField
-      id="app-employmentType"
-      label="Preferred employment type"
-      required
-      className={levelUnset ? "md:col-span-2" : ""}
-      options={options(choices.employmentType)}
-      value={choices.employmentType.value}
-      onChange={(v) => onChange("employmentType", "employmentType", v)}
-      error={err.employmentType}
-    />
-  );
-
-  return (
-    <>
-      {property && <div className="md:col-span-2">{property}</div>}
-      {level}
-      {type}
-    </>
-  );
-}
-
-/** A small summary of what is being applied for: not a review step. Only what is known is listed. */
-function Summary({ entry, choices, experience, onEdit }: { entry: RoleEntry; choices: RoleChoices; experience: Experience; onEdit: () => void }) {
-  const known = (label: string, value: string, name: (v: string) => string = valueLabel): [string, string][] => (value && value !== UNSET ? [[label, name(value)]] : []);
-  const rows: [string, string][] = [
-    ["Position", entry.title],
-    ...known("Property", choices.property.value, propertyName),
-    ...(choices.kind === "vacancy" ? [...known("Employment", choices.employmentType.value), ...known("Position level", choices.level.value)] : []),
-    ["Experience", experience.status === "with_experience" ? `With Experience · ${experience.years}` : "No Previous Experience"],
-  ];
+/** A small summary of what is being applied for: not a review step. */
+function Summary({ rows, onEdit }: { rows: [string, string][]; onEdit: () => void }) {
   return (
     <section aria-labelledby="summary-title" className="rounded-[14px] border border-neutral/12 bg-neutral/[0.04] px-4 py-3.5">
       <div className="flex items-center justify-between gap-3">

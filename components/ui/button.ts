@@ -10,6 +10,7 @@
  * - explore: "Explore opportunities", on the dark properties section: the secondary
  *   button's shape, as a link of its own, light so that it stands clear of the field.
  * - tertiary: quiet actions. Text and icon only.
+ * - ghost: a second action on a dark field (the Company page's closing call, for one).
  *
  * The Menu pill is its own shape, and shares these tokens and timings.
  */
@@ -23,4 +24,6 @@ export const button = {
   secondary: `${BASE} h-11 justify-center bg-petrol text-button font-medium text-white transition-colors group-hover:bg-accent group-hover:text-petrol group-active:bg-accent group-active:text-petrol group-focus-visible:outline-2 group-focus-visible:outline-offset-2 group-focus-visible:outline-petrol`,
   explore: `${BASE} pointer-events-auto h-11 justify-center gap-1.5 bg-petrol px-4 text-button font-medium text-white transition-colors hover:bg-accent hover:text-petrol active:bg-accent active:text-petrol`,
   tertiary: `${BASE} h-11 gap-2.5 px-4 text-button font-medium text-primary transition-opacity hover:opacity-70 active:opacity-55`,
+  /** A second action on a dark field (beside a yellow `search` one): an outline that fills yellow on hover. */
+  ghost: `${BASE} h-12 gap-3 border border-neutral/40 px-5 text-button font-semibold text-neutral transition-colors hover:border-accent hover:bg-accent hover:text-petrol active:bg-accent active:text-petrol lg:h-14 lg:px-6`,
 };

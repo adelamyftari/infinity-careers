@@ -26,6 +26,21 @@ export const CAREER_GROUP_LABEL: Record<CareerGroup, string> = {
 export const EXPERIENCE_LEVELS = ["Entry Level", "Intermediate", "Senior"] as const;
 export type ExperienceLevel = (typeof EXPERIENCE_LEVELS)[number];
 
+/**
+ * The search's Experience filter. It asks about the candidate a position is open to, not about
+ * the position's seniority: Without Experience finds positions open to someone with no previous
+ * work experience, With Experience those that ask for it. It is read from the level HR sets on
+ * each listing, the only fact held about it: an Entry Level opening is open without experience,
+ * an Intermediate or Senior one asks for it. A listing without a level matches neither.
+ */
+export const EXPERIENCE_FILTERS = ["With Experience", "Without Experience"] as const;
+export type ExperienceFilter = (typeof EXPERIENCE_FILTERS)[number];
+
+export function experienceFilterFor(level: ExperienceLevel | null): ExperienceFilter | null {
+  if (level === null) return null;
+  return level === "Entry Level" ? "Without Experience" : "With Experience";
+}
+
 export const EMPLOYMENT_TYPES = ["Full-time", "Part-time", "Internship", "Seasonal"] as const;
 export type EmploymentType = (typeof EMPLOYMENT_TYPES)[number];
 

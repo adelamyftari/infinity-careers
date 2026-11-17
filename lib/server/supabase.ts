@@ -4,8 +4,9 @@ import "server-only";
  * The applications store, through Supabase's REST and Storage APIs, from the
  * server only. The service-role key is read from the server's environment
  * (never a NEXT_PUBLIC_ variable, so it is never sent to a browser) and used
- * for exactly two things: writing an application row and its CV into the
- * private bucket. HR reads them through Supabase itself (docs/hr-applications.md).
+ * for exactly these things: writing an application row and its CV into the
+ * private bucket, and writing a contact message. HR reads them through Supabase
+ * itself (docs/hr-applications.md).
  *
  * Until SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set, nothing is
  * configured and the endpoint refuses applications rather than lose them.
@@ -58,8 +59,9 @@ export async function removeCv(config: Config, path: string): Promise<void> {
   });
 }
 
-export async function insertApplication(config: Config, row: Record<string, unknown>): Promise<boolean> {
-  const response = await call(`${config.url}/rest/v1/applications`, {
+/** One row into a table the website writes (applications, contact_messages); true once it is saved. */
+async function insertRow(config: Config, table: "applications" | "contact_messages", row: Record<string, unknown>): Promise<boolean> {
+  const response = await call(`${config.url}/rest/v1/${table}`, {
     method: "POST",
     headers: headers(config, { "Content-Type": "application/json", Prefer: "return=minimal" }),
     body: JSON.stringify(row),
@@ -67,13 +69,28 @@ export async function insertApplication(config: Config, row: Record<string, unkn
   return !!response?.ok;
 }
 
+export const insertApplication = (config: Config, row: Record<string, unknown>) => insertRow(config, "applications", row);
+
+/** A message from the contact page (public.contact_messages). */
+export const insertContactMessage = (config: Config, row: Record<string, unknown>) => insertRow(config, "contact_messages", row);
+
+/** Whether this email sent a message moments ago (a double submission). */
+export async function sentRecently(config: Config, email: string, sinceIso: string): Promise<boolean | null> {
+  const query = new URLSearchParams({ select: "id", email: `eq.${email}`, created_at: `gte.${sinceIso}`, limit: "1" });
+  const response = await call(`${config.url}/rest/v1/contact_messages?${query}`, { method: "GET", headers: headers(config) });
+  if (!response?.ok) return null;
+  const rows: unknown = await response.json().catch(() => null);
+  return Array.isArray(rows) && rows.length > 0;
+}
+
 /**
- * Whether this email already applied for this position, in this career group, recently (a double
- * submission, or a repeat). The same position in another group (the hotel's receptionist and the
- * casinos') is another role.
+ * Whether this candidate already applied for this position, in this career group, recently (a
+ * double submission, or a repeat): by their email, or by their phone when they gave no email. The
+ * same position in another group (the hotel's receptionist and the casinos') is another role.
  */
-export async function appliedRecently(config: Config, email: string, positionId: string, careerGroup: string, sinceIso: string): Promise<boolean | null> {
-  const query = new URLSearchParams({ select: "id", email: `eq.${email}`, position_id: `eq.${positionId}`, career_group: `eq.${careerGroup}`, created_at: `gte.${sinceIso}`, limit: "1" });
+export async function appliedRecently(config: Config, who: { email: string } | { phone: string }, positionId: string, careerGroup: string, sinceIso: string): Promise<boolean | null> {
+  const contact: Record<string, string> = "email" in who ? { email: `eq.${who.email}` } : { phone: `eq.${who.phone}` };
+  const query = new URLSearchParams({ select: "id", ...contact, position_id: `eq.${positionId}`, career_group: `eq.${careerGroup}`, created_at: `gte.${sinceIso}`, limit: "1" });
   const response = await call(`${config.url}/rest/v1/applications?${query}`, { method: "GET", headers: headers(config) });
   if (!response?.ok) return null;
   const rows: unknown = await response.json().catch(() => null);

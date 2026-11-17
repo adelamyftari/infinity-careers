@@ -22,12 +22,13 @@ import {
   departmentsFor,
   EMPLOYMENT_TYPES,
   getDepartment,
-  EXPERIENCE_LEVELS,
+  EXPERIENCE_FILTERS,
+  experienceFilterFor,
   isDepartmentId,
   type CareerGroup,
   type DepartmentId,
   type EmploymentType,
-  type ExperienceLevel,
+  type ExperienceFilter,
 } from "./taxonomy";
 
 /** The headquarters, named as the site names it (the homepage search's label is "Headquarters (Administration)"). */
@@ -44,7 +45,7 @@ export type RolesQuery = {
   property: PropertyId[];
   group: CareerGroup[];
   department: DepartmentId[];
-  experience: ExperienceLevel[];
+  experience: ExperienceFilter[];
   type: EmploymentType[];
   availability: Availability;
   sort: SortId;
@@ -71,7 +72,7 @@ export const ROLES_FILTERS: readonly RolesFilter[] = [
   { id: "location", label: "Location", anyLabel: "All Locations", primary: true },
   { id: "property", label: "Property", anyLabel: "All Properties", primary: true },
   { id: "group", label: "Career Group", anyLabel: "All Groups", primary: true },
-  { id: "experience", label: "Experience Level", anyLabel: "All Levels", primary: false },
+  { id: "experience", label: "Experience", anyLabel: "Any Experience", primary: false },
   { id: "type", label: "Employment Type", anyLabel: "All Types", primary: false },
   { id: "department", label: "Department", anyLabel: "All Departments", primary: false },
 ];
@@ -102,7 +103,7 @@ export function rolesFilterOptions(id: MultiFilterId, query: RolesQuery): Filter
       return [...new Map(departments.map((d) => [d.id, d])).values()].map((d) => ({ value: d.id, label: d.name }));
     }
     case "experience":
-      return EXPERIENCE_LEVELS.map((level) => ({ value: level, label: level }));
+      return EXPERIENCE_FILTERS.map((value) => ({ value, label: value }));
     case "type":
       return EMPLOYMENT_TYPES.map((type) => ({ value: type, label: type }));
   }
@@ -118,7 +119,7 @@ export function rolesValueLabel(id: MultiFilterId, value: string): string {
 
 const isCity = (v: string): v is City => (CITIES as readonly string[]).includes(v);
 const isGroup = (v: string): v is CareerGroup => (CAREER_GROUPS as readonly string[]).includes(v);
-const isLevel = (v: string): v is ExperienceLevel => (EXPERIENCE_LEVELS as readonly string[]).includes(v);
+const isExperience = (v: string): v is ExperienceFilter => (EXPERIENCE_FILTERS as readonly string[]).includes(v);
 const isType = (v: string): v is EmploymentType => (EMPLOYMENT_TYPES as readonly string[]).includes(v);
 
 const known = <T extends string>(values: readonly string[], guard: (v: string) => v is T): T[] => [...new Set(values.filter(guard))];
@@ -149,7 +150,7 @@ export function withValues(query: RolesQuery, id: MultiFilterId, raw: readonly s
       next.department = known(raw, isDepartmentId);
       break;
     case "experience":
-      next.experience = known(raw, isLevel);
+      next.experience = known(raw, isExperience);
       break;
     case "type":
       next.type = known(raw, isType);
@@ -206,15 +207,15 @@ function someOf<T>(chosen: readonly T[], has: readonly (T | null)[]) {
 }
 
 /**
- * Where it is, its level and its contract type are matched within one
- * offering: Full-time and Entry Level find a position only if one of its
- * offerings is both (not a full-time Senior and a part-time Entry Level). A
- * career role has no offering, so it matches no level or contract type.
+ * Where it is, the experience it is open to and its contract type are matched
+ * within one offering: Full-time and Without Experience find a position only if
+ * one of its offerings is both (not a full-time Senior and a part-time Entry
+ * Level). A career role has no offering, so it matches no experience or contract type.
  */
 function offeredAsAsked(entry: RoleEntry, query: RolesQuery) {
   if (entry.kind === "role") return someOf(query.location, entry.cities) && someOf(query.property, entry.propertyIds) && query.experience.length === 0 && query.type.length === 0;
   return entry.offerings.some(
-    (o) => someOf(query.location, [o.city]) && someOf(query.property, [o.propertyId]) && someOf(query.experience, [o.level]) && someOf(query.type, [o.employmentType]),
+    (o) => someOf(query.location, [o.city]) && someOf(query.property, [o.propertyId]) && someOf(query.experience, [experienceFilterFor(o.level)]) && someOf(query.type, [o.employmentType]),
   );
 }
 
@@ -249,10 +250,11 @@ export function searchRoles(entries: readonly RoleEntry[], query: RolesQuery): R
  * reads the same from the homepage search, a property card or a shared address.
  *
  *   /roles?location=tirana&property=arena-casino&careerGroup=casino
- *   /roles?location=tirana&careerGroup=restaurant&experience=intermediate&employmentType=full-time&page=2
+ *   /roles?location=tirana&careerGroup=restaurant&experience=with-experience&employmentType=full-time&page=2
  *
  * Older forms still read: ?group=…, ?type=…, and the values as the menus name
- * them (?location=Durrës, ?experience=Entry%20Level).
+ * them (?location=Durrës), and the experience levels the filter offered before
+ * (?experience=entry-level reads as Without Experience, intermediate or senior as With).
  */
 const URL_KEY: Record<MultiFilterId, string> = {
   location: "location",
@@ -263,6 +265,8 @@ const URL_KEY: Record<MultiFilterId, string> = {
   type: "employmentType",
 };
 const LEGACY_KEY: Partial<Record<MultiFilterId, string>> = { group: "group", type: "type" };
+/** Experience values from older links, as the URL writes them. */
+const LEGACY_EXPERIENCE: Record<string, string> = { "entry-level": "without-experience", intermediate: "with-experience", senior: "with-experience" };
 /** Outer filters first, so the inner ones are checked against them. */
 const LIST_PARAMS: MultiFilterId[] = ["location", "group", "property", "department", "experience", "type"];
 /** Every key the page owns in the URL: replaced as a whole when the search is written. */
@@ -280,7 +284,7 @@ const ALL_VALUES: Record<MultiFilterId, readonly string[]> = {
   property: propertiesIn(null).map((p) => p.id),
   group: CAREER_GROUPS,
   department: departmentsFor(null).map((d) => d.id),
-  experience: EXPERIENCE_LEVELS,
+  experience: EXPERIENCE_FILTERS,
   type: EMPLOYMENT_TYPES,
 };
 
@@ -292,6 +296,7 @@ function values(params: URLSearchParams, id: MultiFilterId): string[] {
     .flatMap((key) => params.getAll(key))
     .flatMap((v) => v.split(","))
     .map(urlValue)
+    .map((v) => (id === "experience" ? (LEGACY_EXPERIENCE[v] ?? v) : v))
     .filter(Boolean);
   return ALL_VALUES[id].filter((value) => raw.includes(urlValue(value)));
 }

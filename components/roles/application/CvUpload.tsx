@@ -13,7 +13,7 @@ type CvUploadProps = {
 };
 
 /**
- * The CV: dropped on the area, or browsed for. It shows the chosen file's
+ * The CV, optional: dropped on the area, or browsed for. It shows the chosen file's
  * name and size, and can be replaced or removed. A file that is not a PDF,
  * DOC or DOCX, or too large, is turned away here with the reason (the server
  * checks again). The file itself is sent untouched.
@@ -44,10 +44,7 @@ export function CvUpload({ file, onFile, error, progress }: CvUploadProps) {
   return (
     <div>
       <p id="cv-label" className="text-small font-semibold tracking-[0.12em] text-neutral/85">
-        UPLOAD YOUR CV
-        <span aria-hidden="true" className="ml-1 text-accent">
-          *
-        </span>
+        UPLOAD YOUR CV <span className="font-normal text-neutral/50">(OPTIONAL)</span>
       </p>
       <input
         ref={input}
@@ -109,11 +106,11 @@ export function CvUpload({ file, onFile, error, progress }: CvUploadProps) {
           }}
           onDragLeave={() => setOver(false)}
           onDrop={onDrop}
-          className={`mt-2 flex flex-col items-center rounded-[16px] border border-dashed px-6 py-6 text-center transition-colors duration-200 ${
+          className={`mt-2 flex flex-col items-center rounded-[16px] border border-dashed px-6 py-5 text-center transition-colors duration-200 ${
             over ? "border-accent bg-accent/10" : shown ? "border-accent/70" : "border-neutral/30 bg-neutral/[0.03]"
           }`}
         >
-          <svg viewBox="0 0 32 32" aria-hidden="true" className="size-9 text-accent">
+          <svg viewBox="0 0 32 32" aria-hidden="true" className="size-8 text-accent">
             <path d="M16 21V8m0 0-5 5m5-5 5 5M7 22v2.5A2.5 2.5 0 0 0 9.5 27h13a2.5 2.5 0 0 0 2.5-2.5V22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           <p className="mt-3 text-small text-neutral/70">

@@ -8,25 +8,32 @@ import gsap from "gsap";
 import { InfinityMark } from "@/components/brand/InfinityMark";
 import { prefersReducedMotion } from "@/lib/motion";
 import { CITIES } from "@/lib/properties/destinations";
-import { currentSection, jumpToSection, onSectionRequest, requestSection, type HomeSection } from "@/lib/site/navigation";
+import { jumpToSection, onSectionRequest, requestSection, type HomeSection } from "@/lib/site/navigation";
 
 /**
- * The main menu, in its fixed order. Company and Contact have no page or
- * section yet (lib/site/contact.ts is empty until details are confirmed), so
- * they are listed but not linked: give them a `section` or `href` once they
- * exist and they become links like the rest.
+ * The main menu, in its fixed order: home and the site's four pages, numbered
+ * 01–05 by their place here. An item without a `section` or `href` is listed but
+ * not linked ("Coming soon"); none is, at present.
  */
 type MenuItem = { label: string; section?: HomeSection; href?: string };
 
 const ITEMS: MenuItem[] = [
   { label: "Home", section: "home" },
-  { label: "Company" },
+  { label: "Company", href: "/company" },
   { label: "Properties", href: "/properties" },
   { label: "Positions", href: "/roles" },
-  { label: "Contact" },
+  { label: "Contact", href: "/contact" },
 ];
 
 const HREF: Record<HomeSection, string> = { home: "/", properties: "/", positions: "/#roles" };
+
+/** The page each item stands for: its own route (and what belongs to it: a job's page is a position). */
+function isCurrent(item: MenuItem, pathname: string) {
+  if (item.section === "home") return pathname === "/";
+  if (!item.href) return false;
+  if (item.href === "/roles" && pathname.startsWith("/jobs/")) return true;
+  return pathname === item.href || pathname.startsWith(`${item.href}/`);
+}
 
 /**
  * Holds the page still under the open menu. A scrollbar keeps its space (so
@@ -73,7 +80,6 @@ export function MenuButton() {
   // Its own id: the pages Next.js keeps alive for Back and Forward each keep their own header.
   const menuId = useId();
   const host = useBody();
-  const [active, setActive] = useState<HomeSection | null>(null);
   const pathname = usePathname();
   const onHome = pathname === "/";
   const button = useRef<HTMLButtonElement>(null);
@@ -181,7 +187,6 @@ export function MenuButton() {
   useEffect(() => (onHome ? onSectionRequest() : undefined), [onHome]);
 
   function toggle() {
-    if (!open) setActive(onHome ? currentSection() : pathname.startsWith("/jobs") ? "positions" : pathname.startsWith("/properties") ? "properties" : null);
     setOpen((value) => !value);
   }
 
@@ -253,7 +258,7 @@ export function MenuButton() {
               const number = String(i + 1).padStart(2, "0");
               // A home section (scrolled to) or a page of its own (/properties, /roles): either is a link.
               const href = item.section ? HREF[item.section] : item.href;
-              const isActive = item.section !== undefined ? item.section === active : item.href !== undefined && pathname.startsWith(item.href);
+              const isActive = isCurrent(item, pathname);
               const inner = (
                 <>
                   <span data-menu-number className="w-[clamp(2.25rem,4vw,3.5rem)] shrink-0 pt-[0.5em] text-small font-medium tabular-nums tracking-normal text-neutral/55 transition-colors duration-300 group-hover/link:text-accent group-focus-visible/link:text-accent group-aria-[current=page]/link:text-accent">
@@ -279,7 +284,7 @@ export function MenuButton() {
                   )}
                 </>
               );
-              const row = "flex items-start py-[clamp(0.45rem,1.6vh,1rem)] text-[min(clamp(2.5rem,1.2rem+5vw,6.25rem),12svh)] font-medium leading-none tracking-[-0.035em]";
+              const row = "flex items-start py-[clamp(0.45rem,1.6vh,1rem)] text-[min(clamp(2.5rem,1.2rem+5vw,6.25rem),10.5svh)] font-medium leading-none tracking-[-0.035em]";
               return (
                 <li key={item.label} className="relative">
                   {href ? (
@@ -302,7 +307,8 @@ export function MenuButton() {
             })}
           </ol>
 
-          <div className="mt-[clamp(2rem,6vh,4rem)] flex flex-col gap-4 text-small text-neutral/65 sm:flex-row sm:items-end sm:justify-between">
+          {/* The tagline and cities: left out on a very short screen (a phone on its side), where they would make the menu scroll. */}
+          <div className="mt-[clamp(2rem,6vh,4rem)] flex flex-col gap-4 text-small text-neutral/65 sm:flex-row sm:items-end sm:justify-between [@media(max-height:30rem)]:hidden">
             <p data-menu-foot>
               Infinity <span className="text-accent">·</span> Hospitality &amp; Entertainment
             </p>

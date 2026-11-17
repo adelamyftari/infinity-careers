@@ -4,9 +4,10 @@ import {
   CV_TYPES,
   cvExtension,
   cvProblem,
-  EMPTY_EXPERIENCE,
   EMPTY_PERSONAL,
+  EMPTY_PREFERENCES,
   experienceErrors,
+  isExperienceRange,
   personalErrors,
   preferenceResult,
   PRIVACY_ERROR,
@@ -15,7 +16,6 @@ import {
   type CvExtension,
   type Errors,
 } from "@/lib/careers/application";
-import { EMPTY_PREFERENCES } from "@/lib/careers/offerings";
 import { getCareersProperty } from "@/lib/careers/properties";
 import { getRoleEntry } from "@/lib/careers/roles";
 import { clientKey, rateLimited } from "@/lib/server/rate-limit";
@@ -23,14 +23,16 @@ import { appliedRecently, insertApplication, removeCv, supabaseConfig, uploadCv 
 
 /**
  * POST /api/applications: one application (or expression of interest), as
- * multipart form data: `application` (JSON) and `cv` (the file).
+ * multipart form data: `application` (JSON) and, when the candidate added one,
+ * `cv` (the file).
  *
  * Everything is checked here again, whatever the form already checked: the
- * role (it must still be listed), every field, the choice of property, level
- * and contract type (resolved to one of the listings' real offerings, never
- * taken from the browser), the experience, and the CV by its extension, its
- * declared type and its first bytes. The CV is stored under a generated name in
- * the private bucket; its original name is kept only as a label for HR.
+ * role (it must still be listed), every field (the email only when given), the
+ * property (one of the role's own, when it has several), the preferred
+ * employment type, the experience, and a CV, if there is one, by its extension,
+ * its declared type and its first bytes. The CV is stored under a generated name
+ * in the private bucket; its original name is kept only as a label for HR. With
+ * no CV, nothing is uploaded and the CV columns stay empty.
  *
  * Responses never echo what the applicant sent, and nothing about the
  * applicant is logged.
@@ -41,7 +43,7 @@ const ALL_CLIENTS = { limit: 120, windowMs: 15 * 60 * 1000 };
 /** The CV, the JSON and the multipart framing. */
 const MAX_BODY = CV_MAX_BYTES + 96 * 1024;
 const MAX_JSON = 32 * 1024;
-/** The same email for the same position within this window is a repeat. */
+/** The same email (or, without one, the same phone) for the same position within this window is a repeat. */
 const REPEAT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 type Failure =
@@ -64,7 +66,7 @@ const MESSAGES: Record<Failure, string> = {
   role_closed: "This role is no longer accepting applications.",
   invalid: "Some details need your attention.",
   invalid_cv: "Please upload your CV as a PDF, DOC or DOCX file.",
-  duplicate: "You have already applied for this role with this email address. Our recruitment team has your application.",
+  duplicate: "You have already applied for this role. Our recruitment team has your application.",
   upload_failed: "Your CV could not be uploaded. Nothing was submitted; please try again.",
   save_failed: "Your application could not be saved. Nothing was submitted; please try again.",
 };
@@ -119,12 +121,11 @@ function readInput(raw: unknown): ApplicationInput | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   if (typeof r.roleId !== "string") return null;
-  const experience = pick({ status: "", years: "", previousPosition: "" }, r.experience, 400);
   return {
     roleId: r.roleId.slice(0, 200),
     personal: pick(EMPTY_PERSONAL, r.personal, 400),
     preferences: pick(EMPTY_PREFERENCES, r.preferences, 200),
-    experience: { ...EMPTY_EXPERIENCE, ...experience, status: experience.status === "no_experience" || experience.status === "with_experience" ? experience.status : "" },
+    experience: str(r.experience, 60),
     privacy: r.privacy === true,
   };
 }
@@ -163,42 +164,51 @@ export async function POST(request: Request) {
   const entry = getRoleEntry(input.roleId);
   if (!entry) return fail("role_closed");
 
-  // The property, level and contract type: one of the role's real offerings, or refused.
+  // The property (one of the role's own) and the preferred employment type (one of the four), or refused.
   const preference = preferenceResult(entry, input.preferences);
   const fields: Errors = { ...personalErrors(input.personal), ...preference.errors, ...experienceErrors(input.experience) };
   if (!input.privacy) fields.privacy = PRIVACY_ERROR;
 
-  const cv = form.get("cv");
-  if (!(cv instanceof File)) fields.cv = "Please upload your CV.";
-  else {
-    const problem = cvProblem(cv);
+  // The CV is optional: none sent (or an empty file input) is no CV, never a placeholder.
+  const sent = form.get("cv");
+  if (sent !== null && !(sent instanceof File)) return fail("bad_request");
+  const file = sent instanceof File && (sent.name !== "" || sent.size > 0) ? sent : null;
+  if (file) {
+    const problem = cvProblem(file);
     if (problem) fields.cv = problem;
   }
   if (Object.keys(fields).length) return fail(fields.cv && Object.keys(fields).length === 1 ? "invalid_cv" : "invalid", fields);
 
   const resolved = preference.resolved;
-  if (!resolved) return fail("invalid", fields);
-  const file = cv as File;
-  const ext = cvExtension(file.name);
-  if (!ext) return fail("invalid_cv");
-  const bytes = await file.arrayBuffer();
-  if (bytes.byteLength > CV_MAX_BYTES) return fail("too_large");
-  if (!looksLike(ext, new Uint8Array(bytes, 0, Math.min(8, bytes.byteLength)))) return fail("invalid_cv", { cv: "This file doesn't look like a PDF, DOC or DOCX document. Please save your CV again and upload it." });
+  const experience = input.experience;
+  if (!resolved || !isExperienceRange(experience)) return fail("invalid", fields);
 
-  const email = input.personal.email.trim().toLowerCase();
-  const repeat = await appliedRecently(config, email, entry.positionId, entry.careerGroup, new Date(Date.now() - REPEAT_WINDOW_MS).toISOString());
+  let cv: { ext: CvExtension; bytes: ArrayBuffer; name: string } | null = null;
+  if (file) {
+    const ext = cvExtension(file.name);
+    if (!ext) return fail("invalid_cv");
+    const bytes = await file.arrayBuffer();
+    if (bytes.byteLength > CV_MAX_BYTES) return fail("too_large");
+    if (!looksLike(ext, new Uint8Array(bytes, 0, Math.min(8, bytes.byteLength)))) return fail("invalid_cv", { cv: "This file doesn't look like a PDF, DOC or DOCX document. Please save your CV again and upload it." });
+    cv = { ext, bytes, name: file.name };
+  }
+
+  const { personal } = input;
+  // No email given: none is stored (never a placeholder), and the phone identifies a repeat.
+  const email = personal.email.trim().toLowerCase() || null;
+  const phone = personal.phone.trim();
+  const repeat = await appliedRecently(config, email ? { email } : { phone }, entry.positionId, entry.careerGroup, new Date(Date.now() - REPEAT_WINDOW_MS).toISOString());
   if (repeat === null) return fail("save_failed");
   if (repeat) return fail("duplicate");
 
   // A generated name: nothing the applicant typed reaches the storage path.
   const now = new Date();
-  const path = `${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, "0")}/${randomUUID()}.${ext}`;
-  if (!(await uploadCv(config, path, bytes, CV_TYPES[ext]))) {
+  const path = cv ? `${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, "0")}/${randomUUID()}.${cv.ext}` : null;
+  if (cv && path && !(await uploadCv(config, path, cv.bytes, CV_TYPES[cv.ext]))) {
     console.error("[applications] the CV could not be stored");
     return fail("upload_failed");
   }
 
-  const { personal } = input;
   const saved = await insertApplication(config, {
     application_type: entry.kind === "vacancy" ? "vacancy" : "interest",
     // The listing the chosen offering belongs to (an expression of interest has none).
@@ -209,22 +219,23 @@ export async function POST(request: Request) {
     location: resolved.propertyId ? getCareersProperty(resolved.propertyId).city : null,
     department_id: entry.departmentId,
     career_group: entry.careerGroup,
-    selected_job_level: resolved.level,
-    selected_employment_type: resolved.employmentType,
-    ...storedExperience(input.experience),
+    // The candidate's preference, not a confirmed contract; no position level is asked.
+    preferred_employment_type: resolved.employmentType,
+    ...storedExperience(experience),
     first_name: personal.firstName.trim(),
     last_name: personal.lastName.trim(),
     email,
-    phone: personal.phone.trim(),
+    phone,
+    // No CV: the four columns stay empty.
     cv_storage_path: path,
-    cv_original_name: safeLabel(file.name),
-    cv_mime_type: CV_TYPES[ext],
-    cv_size_bytes: bytes.byteLength,
+    cv_original_name: cv ? safeLabel(cv.name) : null,
+    cv_mime_type: cv ? CV_TYPES[cv.ext] : null,
+    cv_size_bytes: cv ? cv.bytes.byteLength : null,
     privacy_acknowledged_at: now.toISOString(),
   });
   if (!saved) {
     // No row, no orphaned CV.
-    await removeCv(config, path);
+    if (path) await removeCv(config, path);
     console.error("[applications] the application row could not be written");
     return fail("save_failed");
   }

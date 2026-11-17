@@ -141,6 +141,8 @@ type RadioProps = Base & {
   className?: string;
   /** Four options: two by two on a phone, one row from 640px. Otherwise one row that wraps when it must. */
   grid?: boolean;
+  /** Five options, the first apart: on its own row, the rest two by two, until there is room for one row of five. */
+  lead?: boolean;
 };
 
 /**
@@ -149,7 +151,8 @@ type RadioProps = Base & {
  * option never shrinks below its label: the row wraps instead.
  */
 export function RadioField(props: RadioProps) {
-  const { id, label, options, value, onChange, error, required, hint, className = "", grid = false } = props;
+  const { id, label, options, value, onChange, error, required, hint, className = "", grid = false, lead = false } = props;
+  const layout = lead ? "grid grid-cols-2 lg:grid-cols-5" : grid ? "grid grid-cols-2 sm:grid-cols-4" : "flex flex-wrap";
   return (
     <fieldset id={id} aria-invalid={error ? true : undefined} aria-describedby={describedBy(props)} tabIndex={-1} className={`min-w-0 outline-none ${className}`}>
       <legend className="text-small font-medium text-neutral/85">
@@ -162,9 +165,9 @@ export function RadioField(props: RadioProps) {
           <span className="ml-1.5 font-normal text-neutral/45">(optional)</span>
         )}
       </legend>
-      <div className={`mt-1.5 gap-1 rounded-[12px] bg-neutral/[0.07] p-1 ring-1 ${grid ? "grid grid-cols-2 sm:grid-cols-4" : "flex flex-wrap"} ${error ? "ring-accent" : "ring-neutral/10"}`}>
-        {options.map((option) => (
-          <label key={option.value} className={`cursor-pointer ${grid ? "" : "flex-1"}`}>
+      <div className={`mt-1.5 gap-1 rounded-[12px] bg-neutral/[0.07] p-1 ring-1 ${layout} ${error ? "ring-accent" : "ring-neutral/10"}`}>
+        {options.map((option, i) => (
+          <label key={option.value} className={`cursor-pointer ${lead ? (i === 0 ? "col-span-2 lg:col-span-1" : "") : grid ? "" : "flex-1"}`}>
             <input type="radio" name={id} value={option.value} checked={value === option.value} onChange={() => onChange(option.value)} className="peer sr-only" />
             <span className="flex min-h-10 items-center justify-center whitespace-nowrap rounded-[9px] px-3.5 text-center text-small text-neutral/80 transition-colors duration-200 hover:bg-neutral/10 hover:text-neutral peer-checked:bg-accent peer-checked:font-medium peer-checked:text-petrol peer-focus-visible:outline-2 peer-focus-visible:outline-offset-1 peer-focus-visible:outline-accent">
               {option.label}

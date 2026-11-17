@@ -6,9 +6,6 @@ import { DEPARTMENT_OVERVIEW, departmentName, propertyLabel, roleWhere, type Rol
 import { CAREER_GROUP_LABEL } from "@/lib/careers/taxonomy";
 import { Modal, ModalCloseButton } from "./Modal";
 
-/** What a fact HR has not set reads as. */
-const UNSET = "To be confirmed by HR";
-
 const GROUP_TEAMS: Record<RoleEntry["careerGroup"], string> = {
   casino: "casino teams",
   restaurant: "restaurant team at Grand Panevino",
@@ -30,8 +27,7 @@ export function RoleDetail({ entry, onClose, onApply }: { entry: RoleEntry; onCl
     ["Location", where.location],
     ["Department", departmentName(entry)],
     ["Career group", CAREER_GROUP_LABEL[entry.careerGroup]],
-    ["Position levels", entry.levels.length ? entry.levels.join(", ") : vacancy ? UNSET : "Set when a position opens"],
-    ["Employment types", entry.employmentTypes.length ? entry.employmentTypes.join(", ") : vacancy ? UNSET : "Set when a position opens"],
+    // No position level or employment type: they are not set officially for each position.
   ];
   // A position offered at several properties names each of them.
   if (vacancy && entry.propertyIds.length > 1) facts[0] = ["Properties", entry.propertyIds.map(propertyLabel).join(", ")];

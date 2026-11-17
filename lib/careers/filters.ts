@@ -18,13 +18,14 @@ import {
   CAREER_GROUPS,
   departmentsFor,
   EMPLOYMENT_TYPES,
-  EXPERIENCE_LEVELS,
+  EXPERIENCE_FILTERS,
+  experienceFilterFor,
   getDepartment,
   isDepartmentId,
   type CareerGroup,
   type DepartmentId,
   type EmploymentType,
-  type ExperienceLevel,
+  type ExperienceFilter,
 } from "./taxonomy";
 
 export type FilterId = "location" | "property" | "group" | "department" | "experience" | "type";
@@ -35,7 +36,7 @@ export type FilterSelection = {
   property: PropertyId | null;
   group: CareerGroup | null;
   department: DepartmentId | null;
-  experience: ExperienceLevel | null;
+  experience: ExperienceFilter | null;
   type: EmploymentType | null;
 };
 
@@ -61,7 +62,7 @@ export const JOB_FILTERS: readonly JobFilter[] = [
   { id: "location", label: "Location", anyLabel: "All Locations", primary: true },
   { id: "property", label: "Property", anyLabel: "All Properties", primary: true },
   { id: "group", label: "Career Group", anyLabel: "All Groups", primary: true },
-  { id: "experience", label: "Experience Level", anyLabel: "All Levels", primary: false },
+  { id: "experience", label: "Experience", anyLabel: "Any Experience", primary: false },
   { id: "type", label: "Employment Type", anyLabel: "All Types", primary: false },
   { id: "department", label: "Department", anyLabel: "All Departments", primary: false },
 ];
@@ -73,7 +74,7 @@ export type FilterOption = { value: string; label: string; /** Heading the optio
 
 const isCity = (value: string): value is City => (CITIES as readonly string[]).includes(value);
 const isGroup = (value: string): value is CareerGroup => (CAREER_GROUPS as readonly string[]).includes(value);
-const isLevel = (value: string): value is ExperienceLevel => (EXPERIENCE_LEVELS as readonly string[]).includes(value);
+const isExperience = (value: string): value is ExperienceFilter => (EXPERIENCE_FILTERS as readonly string[]).includes(value);
 const isType = (value: string): value is EmploymentType => (EMPLOYMENT_TYPES as readonly string[]).includes(value);
 
 /** What a filter offers, given the rest of the selection. */
@@ -88,7 +89,7 @@ export function filterOptions(id: FilterId, selection: FilterSelection): FilterO
     case "department":
       return departmentsFor(selection.group).map((d) => ({ value: d.id, label: d.name }));
     case "experience":
-      return EXPERIENCE_LEVELS.map((level) => ({ value: level, label: level }));
+      return EXPERIENCE_FILTERS.map((value) => ({ value, label: value }));
     case "type":
       return EMPLOYMENT_TYPES.map((type) => ({ value: type, label: type }));
   }
@@ -133,7 +134,7 @@ export function withFilter(selection: FilterSelection, id: FilterId, raw: string
       next.department = raw !== null && isDepartmentId(raw) ? raw : null;
       break;
     case "experience":
-      next.experience = raw !== null && isLevel(raw) ? raw : null;
+      next.experience = raw !== null && isExperience(raw) ? raw : null;
       break;
     case "type":
       next.type = raw !== null && isType(raw) ? raw : null;
@@ -153,7 +154,7 @@ export function matchesSelection(job: Job, selection: FilterSelection) {
     (selection.property === null || job.propertyId === selection.property) &&
     (selection.group === null || job.careerGroup === selection.group) &&
     (selection.department === null || job.departmentId === selection.department) &&
-    (selection.experience === null || job.experienceLevel === selection.experience) &&
+    (selection.experience === null || experienceFilterFor(job.experienceLevel) === selection.experience) &&
     (selection.type === null || job.employmentTypes.includes(selection.type))
   );
 }
